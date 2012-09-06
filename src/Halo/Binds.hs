@@ -294,25 +294,33 @@ invertAlt scrut_exp (cons,_,_) = case cons of
 
 -- | Translate a case alternative
 trAlt :: Ord s => CoreExpr -> CoreAlt -> HaloM (BindParts s)
-trAlt scrut_exp (cons,bound,e) = do
+trAlt scrut_exp (cons,bound,e0) = do
 
-    (subst_expr,equality_constraint) <- case cons of
-        DataAlt data_con -> return
-            (foldApps (Var (dataConWorkId data_con)) (map Var bound)
-            ,Equality scrut_exp data_con (map Var bound))
+    (subst_expr,su,equality_constraint) <- case cons of
+        DataAlt dc -> do
+            let apply_proj _ i = do
+                    proj_id <- projId i dc
+                    return $ App (Var proj_id) scrut_exp
+            bound' <- zipWithM apply_proj bound [0..]
+            return (foldApps (Var (dataConWorkId dc)) bound'
+                   ,extendIdSubstList emptySubst (zip bound bound')
+                   ,Equality scrut_exp dc bound')
         LitAlt lit@(MachInt i) -> return
-            (Lit lit,LitEquality scrut_exp i)
+            (Lit lit,emptySubst,LitEquality scrut_exp i)
         LitAlt lit@(LitInteger i _) -> return
-            (Lit lit,LitEquality scrut_exp i)
+            (Lit lit,emptySubst,LitEquality scrut_exp i)
         LitAlt _ -> throwError "trAlt: on non-integer alternative"
         DEFAULT  -> throwError "trAlt: on DEFAULT, internal error"
 
     HaloEnv{arities,conf = HaloConf{var_scrut_constr}} <- ask
     let isQuant x = x `M.notMember` arities
 
-    case removeCruft scrut_exp of
+    let e = substExpr (text "trAlt") su e0
+
+    local (substContext su) $ case removeCruft scrut_exp of
+
         Var x | isQuant x && not var_scrut_constr -> do
-            let s = extendIdSubst emptySubst x subst_expr
+            let s = extendIdSubst su x subst_expr
                 e' = substExpr (text "trAlt") s e
             local (substContext s) (trCase e')
         _ -> local (pushConstraint equality_constraint) (trCase e)

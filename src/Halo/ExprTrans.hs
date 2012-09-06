@@ -41,6 +41,7 @@ import Control.Monad.Error
 trExpr :: CoreExpr -> HaloM Term'
 trExpr e = do
     HaloEnv{..} <- ask
+    id_proj <- idProj
     let isPAP x = case M.lookup x arities of
                           Just i  -> i > 0
                           Nothing -> False
@@ -55,6 +56,8 @@ trExpr e = do
         App{} -> case second trimTyArgs (collectArgs e) of
             (Var f,es)
                 | null es -> trExpr (Var f)
+                | [e] <- es, Just p <- id_proj f -> do
+                    p <$> trExpr e
                 | Just i <- M.lookup f arities -> do
                     if i > length es
                         then do

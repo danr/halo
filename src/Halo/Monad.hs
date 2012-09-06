@@ -2,6 +2,7 @@
         FlexibleContexts,
         GeneralizedNewtypeDeriving,
         NamedFieldPuns,
+        ParallelListComp,
         RecordWildCards
   #-}
 {-
@@ -64,8 +65,11 @@ import CoreSubst
 import CoreSyn
 import DataCon
 import Id
+import Name
 import Outputable
+import SrcLoc
 import TyCon
+import TysPrim
 import Unique
 import VarSet
 
@@ -76,6 +80,10 @@ import Halo.Shared
 import Halo.Util
 import Halo.Subtheory
 
+import Halo.FOL.Abstract
+
+import qualified Data.Bimap as B
+import Data.Bimap (Bimap)
 import qualified Data.Map as M
 import Data.Map (Map)
 import Data.Maybe
@@ -108,7 +116,21 @@ data HaloEnv = HaloEnv
     -- ^ Current min-set (of cased scrutinees) when translating a bind
     , conf        :: HaloConf
     -- ^ Configuration
+    , projections :: Bimap (Int,DataCon) Id
+    -- ^ Projections
     }
+
+projId :: Int -> DataCon -> HaloM Id
+projId n dc = asks (fromMaybe err . B.lookup (n,dc) . projections)
+  where
+    err = error $ "projId: cannot find proj " ++ show n ++ " " ++ getOccString dc
+
+idProj :: HaloM (Id -> Maybe (Term' -> Term'))
+idProj = do
+    m <- asks projections
+    return $ \i -> case B.lookupR i m of
+        Just (n,dc) -> Just (proj n (dataConWorkId dc))
+        Nothing     -> Nothing
 
 -- | Registers a variable as a skolem variable
 addSkolem :: Var -> HaloEnv -> HaloEnv
@@ -154,10 +176,29 @@ mkEnv conf@HaloConf{..} ty_cons program =
             | ty_con <- ty_cons
             , let dcs = tyConDataCons ty_con
             , dc <- dcs
-            , let dc_id           = dataConWorkId dc
-                  (_,_,ty_args,_) = dataConSig dc
-                  arity           = length ty_args
+            , let (dc_id,arity) = dcIdArity dc
             ]
+
+        mk_id :: Int -> Int -> DataCon -> Id
+        mk_id u i dc =
+            mkLocalId
+                (mkInternalName
+                    (mkUnique 'u' u)
+                    (mkOccName varName (getOccString dc ++ "_" ++ show i))
+                    wiredInSrcSpan)
+                anyTy
+
+        projs :: [((Int,DataCon),Id)]
+        projs =
+            [ ((n,dc),mk_id u n dc)
+            | ty_con <- ty_cons
+            , let dcs = tyConDataCons ty_con
+            , dc <- dcs
+            , let (_,arity) = dcIdArity dc
+            , n <- [0..arity-1]
+            | u <- [0..]
+            ]
+
 
         -- Arity of each function (Arities from other modules are also needed)
         arities :: ArityMap
@@ -172,6 +213,7 @@ mkEnv conf@HaloConf{..} ty_cons program =
             , constr      = noConstraints
             , min_set     = []
             , conf        = conf
+            , projections = B.fromList projs
             }
 
 -- | The translation monad
