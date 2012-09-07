@@ -23,7 +23,8 @@ mkPtr HaloConf{ext_eq} h arity = Subtheory
     , formulae    =
         let lhs = apps (ptr h) as'
             rhs = fun h as'
-        in  [forall' as $ ors [min' lhs,min' rhs] ==> lhs === rhs]
+        in  [forall' as $ {- ors [min' lhs,min' rhs] ==> -} lhs === rhs]
+                            -- ^ new dimitrios' style
     }
   where
     as  = take arity varNames

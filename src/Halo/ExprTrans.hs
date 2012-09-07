@@ -56,8 +56,8 @@ trExpr e = do
         App{} -> case second trimTyArgs (collectArgs e) of
             (Var f,es)
                 | null es -> trExpr (Var f)
-                | [e] <- es, Just p <- id_proj f -> do
-                    p <$> trExpr e
+                | [arg] <- es, Just p <- id_proj f -> do
+                    p <$> trExpr arg
                 | Just i <- M.lookup f arities -> do
                     if i > length es
                         then do

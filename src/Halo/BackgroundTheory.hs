@@ -45,9 +45,13 @@ backgroundTheory halo_conf ty_cons
 tyConSubtheories :: HaloConf -> [TyCon] -> [Subtheory s]
 tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
     [ -- Projections, for each constructor k
-    let projections =
-            [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi
-            -- Used to also have min' xi ==>
+    let projections = concat
+            [ [ foralls $ min' kxs ==> proj i k kxs === xi
+              , foralls $ neg (min' kxs) ==> proj i k kxs === bad
+--              , foralls $ neg (min' x') ==> proj i k x' === bad
+--              ^ gives non-finite model property
+              , foralls $ min' kxs ==> min' xi
+              ]
             | dc <- dcs
             , let (k,arg_types) = dcIdArgTypes dc
                   xs            = zipWith setVarType varNames arg_types
@@ -73,7 +77,7 @@ tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
 
                 [ makeDisjoint halo_conf j k
                 | let disjoints = map fromTag $
-                          [ (True,dc) | dc <- dcs ] ++
+                          [ (False,dc) | dc <- dcs ] ++
                           [ (False,prim_con)
                           | unr_and_bad
                           , prim_con <- [primCon BAD,primCon UNR] ]

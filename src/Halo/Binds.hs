@@ -124,10 +124,9 @@ trBindPart :: BindPart s -> HaloM Formula'
 trBindPart BindPart{..} = do
     tr_constr <- trConstraints bind_constrs
     lhs <- apply bind_fun <$> mapM trExpr bind_args
-    consequent <- case bind_rhs of
-        Min scrut -> min' <$> trExpr scrut
-        Rhs rhs   -> (lhs ===) <$> trExpr rhs
-    return $ foralls (min' lhs : tr_constr ===> consequent)
+    case bind_rhs of
+        Min scrut -> foralls . (min' lhs ==>) . min' <$> trExpr scrut
+        Rhs rhs   -> foralls . (tr_constr ===>) . (lhs ===) <$> trExpr rhs
 
 -- | Make a subtheory for bind parts that regard the same function
 trBindParts :: Ord s => Var -> CoreExpr -> BindParts s -> HaloM (Subtheory s)
@@ -294,7 +293,7 @@ invertAlt scrut_exp (cons,_,_) = case cons of
 
 -- | Translate a case alternative
 trAlt :: Ord s => CoreExpr -> CoreAlt -> HaloM (BindParts s)
-trAlt scrut_exp (cons,bound,e0) = do
+trAlt scrut_exp (cons,bound,e) = do
 
     (subst_expr,su,equality_constraint) <- case cons of
         DataAlt dc -> do
@@ -315,15 +314,18 @@ trAlt scrut_exp (cons,bound,e0) = do
     HaloEnv{arities,conf = HaloConf{var_scrut_constr}} <- ask
     let isQuant x = x `M.notMember` arities
 
-    let e = substExpr (text "trAlt") su e0
+    let e_subst = substExpr (text "trAlt") su
 
     local (substContext su) $ case removeCruft scrut_exp of
 
         Var x | isQuant x && not var_scrut_constr -> do
+            -- First replace the scrutinee var with the scrutinee expression
             let s = extendIdSubst su x subst_expr
                 e' = substExpr (text "trAlt") s e
-            local (substContext s) (trCase e')
-        _ -> local (pushConstraint equality_constraint) (trCase e)
+            -- Then replace the bound variables to projections of the scrutinee expression
+            local (substContext s) (trCase (e_subst e'))
+        _ -> local (pushConstraint equality_constraint)
+                   (trCase (e_subst e))
 
 -- | Translate and nub constraints
 trConstraints :: [Constraint] -> HaloM [Formula']

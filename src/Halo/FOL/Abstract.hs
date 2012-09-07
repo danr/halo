@@ -23,6 +23,7 @@ module Halo.FOL.Abstract
 
     , (===), (=/=)
     , (==>), (===>)
+    , (<=>), (<==>)
     , (/\), ands
     , (\/), ors
     , neg
@@ -134,8 +135,9 @@ infix 4 =/=
 (===) = Equal
 (=/=) = Unequal
 
-infixl 1 ==>
-infixl 1 ===>
+infixl 1 ==>, ===>
+
+infix 1 <=>, <==>
 
 -- | Implication
 (==>) :: Formula q v -> Formula q v -> Formula q v
@@ -146,6 +148,16 @@ infixl 1 ===>
 (===>) :: [Formula q v] -> Formula q v -> Formula q v
 []  ===> f = f
 phi ===> f = ands phi ==> f
+
+-- | Equivalence
+(<=>) :: Formula q v -> Formula q v -> Formula q v
+x <=> y = (x ==> y) /\ (y ==> x)
+
+-- | l <==> [r1,..,r2] means
+--   l <==> r1 /\ ... /\ r2
+(<==>) :: Formula q v -> [Formula q v] -> Formula q v
+x <==> [] = x
+x <==> ys = (x ==> ands ys) /\ (ands ys ==> x)
 
 infixr 2 \/
 infixr 3 /\
