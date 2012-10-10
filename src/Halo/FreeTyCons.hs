@@ -55,3 +55,5 @@ patCons (Cast e _)  = patCons e
 patCons (Tick _ e)  = patCons e
 patCons Type{}      = S.empty
 patCons Coercion{}  = S.empty
+
+

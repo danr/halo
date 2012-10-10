@@ -107,7 +107,7 @@ data Subtheory s = Subtheory
     -- ^ Content depending upon
     , description :: String
     -- ^ Commentary
-    , formulae    :: [Formula']
+    , formulae    :: [VFormula]
     -- ^ Formulae in this sub theory
     }
 
@@ -122,14 +122,14 @@ instance Ord s => Ord (Subtheory s) where
     compare = compare `on` provides
 
 class Clausifiable s where
-    mkClause :: s -> Formula' -> Clause'
+    mkClause :: s -> VFormula -> VClause
 
 instance Clausifiable s => Clausifiable (Content s) where
     mkClause (Specific s) = mkClause s
     mkClause Function{}   = clause definition
     mkClause _            = clause axiom
 
-toClauses :: Clausifiable s => Subtheory s -> [Clause']
+toClauses :: Clausifiable s => Subtheory s -> [VClause]
 toClauses (Subtheory{..}) = commentary ++ map (mkClause provides) formulae
   where
     commentary

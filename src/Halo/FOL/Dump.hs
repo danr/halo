@@ -14,17 +14,17 @@ import qualified Data.DList as DL
 type DLDoc = DL.DList Char
 
 -- | Dump a set of clauses to a String
-dumpTPTP :: [Clause'] -> String
+dumpTPTP :: [VClause] -> String
 dumpTPTP = DL.toList . dumpClauses
 
 -- | DUmp a set of clauses
-dumpClauses :: [Clause'] -> DLDoc
+dumpClauses :: [VClause] -> DLDoc
 dumpClauses cls = cat (map dumpClause cls)
 
 -- | Dumps a clause
 --   This function also transforms formulae to CNF, which might indeed
 --   be a little strange to do here
-dumpClause :: Clause' -> DLDoc
+dumpClause :: VClause -> DLDoc
 dumpClause (Clause _cl_name cl_type cl_formula) = case simpleCNF cl_formula' of
     Just atoms -> dumpClEntry (text "cnf") cl_type' (dumpBinOp pipe atoms)
     _          -> dumpClEntry (text "fof") cl_type (dumpForm id cl_formula)
@@ -49,7 +49,7 @@ dumpClType ty = case ty of
 
 -- | Dump a formula.
 --   Second argument is if it should be enclosed in parentheses.
-dumpForm :: (DLDoc -> DLDoc) -> Formula' -> DLDoc
+dumpForm :: (DLDoc -> DLDoc) -> VFormula -> DLDoc
 dumpForm par form = case form of
     Equal   t1 t2       -> dumpEqOp equals t1 t2
     Unequal t1 t2       -> dumpEqOp unequals t1 t2
@@ -63,20 +63,21 @@ dumpForm par form = case form of
     Pred MinRec [tm]    -> text "minrec" <> parens (dumpTm tm)
     Pred CF [tm]        -> text "cf" <> parens (dumpTm tm)
     Pred IsType [t1,t2] -> text "ty" <> parens (dumpTm t1 <> comma <> dumpTm t2)
+    Pred Eval [t1,t2]   -> text "eval" <> parens (dumpTm t1 <> comma <> dumpTm t2)
     Pred p xs           -> error $ "dumpForm: panic predicate "
                             ++ show p ++ " args: " ++ show (length xs)
 
 -- | Dump the equality operations: ==, !=
-dumpEqOp :: DLDoc -> Term' -> Term' -> DLDoc
+dumpEqOp :: DLDoc -> VTerm -> VTerm -> DLDoc
 dumpEqOp op t1 t2 = dumpTm t1 <> op <> dumpTm t2
 
 -- | Dump binary operations: &, |, =>
-dumpBinOp :: DLDoc -> [Formula'] -> DLDoc
+dumpBinOp :: DLDoc -> [VFormula] -> DLDoc
 dumpBinOp op fs = cat (punctuate op (map (dumpForm parens) fs))
 
 -- | Dump quantifiers: ! [..] :, ? [..] :
 --   op list should _not_ be empty
-dumpQuant ::  DLDoc -> [Var] -> Formula' -> DLDoc
+dumpQuant ::  DLDoc -> [Var] -> VFormula -> DLDoc
 dumpQuant op qs f =
     op <> brackets (csv (map dumpQVar qs)) <> colon <> dumpForm parens f
 
@@ -84,7 +85,7 @@ dumpQVar :: Var -> DLDoc
 dumpQVar = (char 'Q' <>) . dumpVar
 
 -- | Dump a term
-dumpTm :: Term' -> DLDoc
+dumpTm :: VTerm -> DLDoc
 dumpTm tm = case tm of
     Fun  a tms  -> char 'f' <> dumpVar a <> dumpArgs tms
     Ctor a tms  -> char 'c' <> dumpVar a <> dumpArgs tms
@@ -99,7 +100,7 @@ dumpTm tm = case tm of
 dumpVar :: Var -> DLDoc
 dumpVar = text . show . varUnique
 
-dumpArgs :: [Term'] -> DLDoc
+dumpArgs :: [VTerm] -> DLDoc
 dumpArgs [] = empty
 dumpArgs xs = parens (csv (map dumpTm xs))
 

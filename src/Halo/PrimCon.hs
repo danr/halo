@@ -24,11 +24,11 @@ import Halo.FOL.Abstract
 
 data PrimCon = BAD | UNR deriving (Show,Eq,Ord,Enum,Bounded,Data,Typeable)
 
-true,false,unr,bad :: Term'
-true  = con trueDataConId
-false = con falseDataConId
-unr   = con (primId UNR)
-bad   = con (primId BAD)
+true,false,unr,bad :: VTerm
+true  = conApp trueDataConId  []
+false = conApp falseDataConId []
+unr   = conApp (primId UNR)   []
+bad   = conApp (primId BAD)   []
 
 -- | Copied from TysWiredIn since it is not exported
 mkWiredInDataConName :: BuiltInSyntax -> Module -> FastString -> Unique

@@ -1,5 +1,5 @@
 -- Linearises (pretty prints) our FOL representation into SMT
-module Halo.FOL.LineariseSMT (linSMT) where
+module Halo.FOL.LineariseSMT ( linSMT ) where
 
 import Outputable hiding (quote)
 
@@ -23,7 +23,7 @@ import Data.Map (Map)
 import Data.Maybe
 
 -- | Linearise a set of clauses to a String
-linSMT :: [Clause'] -> String
+linSMT :: [VClause] -> String
 linSMT = (++ "\n") . showSDoc . linClauses
 
 -- | Linearise a sort declaration
@@ -38,7 +38,7 @@ linDeclFun name args res =
     parens (text "declare-fun" <+> name <+> parens (sep args) <+> res)
 
 -- | Linearise the set of clauses
-linClauses :: [Clause'] -> SDoc
+linClauses :: [VClause] -> SDoc
 linClauses cls = vcat $ concat
     [ [parens (text "set-option :print-success false")]
     , [linDeclSort linDomain]
@@ -91,7 +91,7 @@ linClauses cls = vcat $ concat
         ]
 
 -- | Linearises a clause
-linClause :: Clause' -> SDoc
+linClause :: VClause -> SDoc
 linClause (Comment s)
     = text ("\n" ++ intercalate "\n" (map ("; " ++) (lines s)))
 linClause (Clause cl_name cl_type cl_formula)
@@ -102,7 +102,7 @@ linClause (Clause cl_name cl_type cl_formula)
 
 -- | Linearise a formula.
 --   Second argument is if it should be enclosed in parentheses.
-linForm :: Formula' -> SDoc
+linForm :: VFormula -> SDoc
 linForm form = parens $ case form of
     Equal   t1 t2    -> linEqOp equals t1 t2
     Unequal t1 t2    -> linEqOp (text "distinct") t1 t2
@@ -120,6 +120,8 @@ linPred Min    = linMin
 linPred MinRec = linMinRec
 linPred CF     = linCF
 linPred IsType = linIsType
+linPred Eval   = linEval
+linPred ECF    = linECF
 
 linTrue :: SDoc -> SDoc
 linTrue t = equals <+> text "true" <+> parens t
@@ -128,16 +130,16 @@ linFalse :: SDoc -> SDoc
 linFalse t = equals <+> text "false" <+> parens t
 
 -- | Linearise the equality operations: =, !=
-linEqOp :: SDoc -> Term' -> Term' -> SDoc
+linEqOp :: SDoc -> VTerm -> VTerm -> SDoc
 linEqOp op t1 t2 = op <+> linTerm t1 <+> linTerm t2
 
 -- | Linearise binary operations: or, and, =>
-linBinOp :: SDoc -> [Formula'] -> SDoc
+linBinOp :: SDoc -> [VFormula] -> SDoc
 linBinOp op fs = op <+> sep (map linForm fs)
 
 -- | Linearise quantifiers: ! [..] :, ? [..] :
 --   op list should _not_ be empty
-linQuant :: SDoc -> [Var] -> Formula' -> SDoc
+linQuant :: SDoc -> [Var] -> VFormula -> SDoc
 linQuant op qs f = hang
     (op <+> parens (sep (map (linQuantBinder) qs))) 4
     (linForm f)
@@ -153,7 +155,7 @@ linType t | t `eqType` intPrimTy = linInt
 
 -- | Linearise a term
 --   The way to carry out most of the work is determined in the Style.
-linTerm :: Term' -> SDoc
+linTerm :: VTerm -> SDoc
 linTerm (Skolem a) = linSkolem a
 linTerm tm = case tm of
     Fun a []    -> linFun a
@@ -222,6 +224,14 @@ linMinRec   = text "minrec"
 -- | The CF symbol
 linCF       :: SDoc
 linCF       = text "cf"
+
+linECF       :: SDoc
+linECF       = text "ecf"
+
+
+-- | The Eval symbol
+linEval     :: SDoc
+linEval     = text "eval"
 
 -- | The IsType symbol
 linIsType   :: SDoc

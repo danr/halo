@@ -54,6 +54,9 @@ import Halo.Shared
 import Halo.Subtheory
 import Halo.Util
 
+
+import Halo.Names ( rTm, varNames )
+
 import Halo.FOL.Abstract
 
 import Control.Monad.Reader
@@ -120,13 +123,17 @@ bindPart rhs = do
 
 -- | Translate a bind part to formulae. Does not capture used pointers,
 --   doesn't look at min set of binds.
-trBindPart :: BindPart s -> HaloM Formula'
+trBindPart :: BindPart s -> HaloM VFormula
 trBindPart BindPart{..} = do
+    write $ "trBindPart for function " ++ (show bind_fun)
     tr_constr <- trConstraints bind_constrs
-    lhs <- apply bind_fun <$> mapM trExpr bind_args
+    lhs <- funApp bind_fun <$> mapM trExpr bind_args
     case bind_rhs of
-        Min scrut -> foralls . (min' lhs ==>) . min' <$> trExpr scrut
-        Rhs rhs   -> foralls . (tr_constr ===>) . (lhs ===) <$> trExpr rhs
+        Min scrut  -> qforalls . (minPred lhs ==>) . minPred <$> trExpr scrut
+        Rhs rhs_tm -> do { rhs <- trExpr rhs_tm
+                         ; return $
+                           qforalls (minPred lhs : evalPred rhs rTm : tr_constr ===> (evalPred lhs rTm /\ minPred rhs))
+                         }
 
 -- | Make a subtheory for bind parts that regard the same function
 trBindParts :: Ord s => Var -> CoreExpr -> BindParts s -> HaloM (Subtheory s)
@@ -300,7 +307,7 @@ trAlt scrut_exp (cons,bound,e) = do
             let apply_proj _ i = do
                     proj_id <- projId i dc
                     return $ App (Var proj_id) scrut_exp
-            bound' <- zipWithM apply_proj bound [0..]
+            bound' <- return $ map Var bound -- DV: zipWithM apply_proj bound [0..]
             return (foldApps (Var (dataConWorkId dc)) bound'
                    ,extendIdSubstList emptySubst (zip bound bound')
                    ,Equality scrut_exp dc bound')
@@ -318,17 +325,19 @@ trAlt scrut_exp (cons,bound,e) = do
 
     local (substContext su) $ case removeCruft scrut_exp of
 
+      {- This is used only for inlining the constraints 
         Var x | isQuant x && not var_scrut_constr -> do
             -- First replace the scrutinee var with the scrutinee expression
             let s = extendIdSubst su x subst_expr
                 e' = substExpr (text "trAlt") s e
             -- Then replace the bound variables to projections of the scrutinee expression
             local (substContext s) (trCase (e_subst e'))
+       -} 
         _ -> local (pushConstraint equality_constraint)
                    (trCase (e_subst e))
 
 -- | Translate and nub constraints
-trConstraints :: [Constraint] -> HaloM [Formula']
+trConstraints :: [Constraint] -> HaloM [VFormula]
 trConstraints constrs = do
     let write_cs hdr cs = write $ hdr ++ show cs
     write_cs "Constraints: " constrs
@@ -336,21 +345,22 @@ trConstraints constrs = do
         then throwError "  Conflict!"
         else do
             let not_redundant = rmRedundantConstraints constrs
+            write_cs "Original constraints: " constrs
             write_cs "Not redundant: " not_redundant
             mapM trConstr not_redundant
 
 -- | Translate one constraint
-trConstr :: Constraint -> HaloM Formula'
+trConstr :: Constraint -> HaloM VFormula
 trConstr (Equality e data_con bs) = do
     lhs <- trExpr e
-    rhs <- apply (dataConWorkId data_con) <$> mapM trExpr bs
-    return $ lhs === rhs
+    rhs <- conApp (dataConWorkId data_con) <$> mapM trExpr bs
+    return $ evalPred lhs rhs
 trConstr (Inequality e data_con) = do
     lhs <- trExpr e
-    let rhs = apply (dataConWorkId data_con)
-                    [ proj i (dataConWorkId data_con) lhs
-                    | i <- [0..dataConSourceArity data_con-1] ]
-    return $ lhs =/= rhs
+    let rhs = conApp (dataConWorkId data_con) xs
+        xs  = [ proj i (dataConWorkId data_con) lhs           -- DV: scary
+              | i <- [0..dataConSourceArity data_con-1] ]
+    return $ neg (evalPred lhs rhs)
 trConstr (LitEquality e i)   = (litInteger i ===) <$> trExpr e
 trConstr (LitInequality e i) = (litInteger i =/=) <$> trExpr e
 

@@ -7,8 +7,6 @@ import Name
 import Id
 import Outputable
 
-import Halo.Util
-
 import Halo.FOL.Internals.Internals
 import Halo.FOL.Operations
 import Halo.FOL.Abstract
@@ -23,9 +21,9 @@ import qualified Data.Set as S
 import Data.Char
 import Data.Maybe
 
-renameClauses :: [Clause'] -> ([StrClause],Map String Var)
+renameClauses :: [VClause] -> ([SClause],Map String Var)
 renameClauses clauses =
-    let rename_funs :: Clause' -> Clause Var String
+    let rename_funs :: VClause -> Clause Var String
         str_map :: Map String Var
         (rename_funs,str_map) = mkFunRenamer clauses
 
@@ -41,10 +39,10 @@ renameClauses clauses =
 
      in  (clauses',str_map)
 
-mkFunRenamer :: [Clause'] -> (Clause' -> Clause Var String,Map String Var)
+mkFunRenamer :: [VClause] -> (VClause -> Clause Var String,Map String Var)
 mkFunRenamer clauses =
     let symbols :: [Var]
-        symbols = nubSorted $ concatMap allSymbols' clauses
+        symbols = S.toAscList $ S.unions (map allSymbolsOfClause clauses)
 
         rep_bimap :: Bimap Var String
         rep_bimap = foldr (allot varSuggest protectedWiredIn) B.empty symbols
@@ -66,13 +64,13 @@ mkFunRenamer clauses =
 renameQVar :: forall q . Ord q => (q -> [String]) -> Clause q String -> Clause String String
 renameQVar suggest cl =
     let symbols :: Set String
-        symbols = S.fromList (allSymbols' cl)
+        symbols = allSymbolsOfClause cl
 
-        quants :: [q]
-        quants = allQuant' cl
+        quants :: S.Set q
+        quants = allQuantOfClause cl
 
         rep_map :: Map q String
-        rep_map = B.toMap (foldr (allot suggest (symbols `S.union` protectedWiredIn))
+        rep_map = B.toMap (S.foldr (allot suggest (symbols `S.union` protectedWiredIn))
                                  B.empty quants)
 
         replace :: q -> String
@@ -118,7 +116,14 @@ lower :: String -> String
 lower = map toLower
 
 protectedWiredIn :: Set String
-protectedWiredIn = S.fromList ["app","min","$min","minrec","cf","type"]
+protectedWiredIn = S.fromList
+    [ "app"
+    , "min"
+    , "$min"
+    , "minrec"
+    , "cf"
+    , "type"
+    , "eval"]
 
 qvarEscapes :: Map Char String
 qvarEscapes = M.fromList

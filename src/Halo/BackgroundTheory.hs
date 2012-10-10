@@ -42,23 +42,52 @@ backgroundTheory halo_conf ty_cons
     = extEq : appOnMin : dummyAny
     : tyConSubtheories halo_conf ty_cons
 
+
+              
+
+
 tyConSubtheories :: HaloConf -> [TyCon] -> [Subtheory s]
 tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
     [ -- Projections, for each constructor k
     let projections = concat
-            [ [ foralls $ min' kxs ==> proj i k kxs === xi
-              , foralls $ neg (min' kxs) ==> proj i k kxs === bad
---              , foralls $ neg (min' x') ==> proj i k x' === bad
---              ^ gives non-finite model property
-              , foralls $ min' kxs ==> min' xi
-              ]
+              [ [ -- qforalls $ [ minPred (proj i k kxs)
+                --              , evalPred xi rTm ] ===>
+                --                   (evalPred (proj i k kxs) rTm /\ minPred xi)
+                -- , qforalls $ evalPred xTm kxs ==> proj i k xTm === xi
+--                   fof(x, axiom, ! [X,Y] : (eval(X, c_S(Y)) => Y = p_0_S(X))).
+
+--                , qforalls $ (qexists xs $ evalPred gTm kxs) \/
+--                                      evalPred (proj i k gTm) unr
+                ]
+--                [ qforalls $ proj i k kxs === xi ]
+--                 qforalls $ minPred kxs ==> proj i k kxs === xi
+--               , qforalls $ neg (minPred kxs) ==> proj i k kxs === bad
+-- --            , qforalls $ neg (minPred x') ==> proj i k x' === bad
+-- --             ^ gives non-finite model property
+--               , qforalls $ minPred kxs ==> minPred xi
+              
             | dc <- dcs
             , let (k,arg_types) = dcIdArgTypes dc
                   xs            = zipWith setVarType varNames arg_types
-                  kxs           = apply k (map qvar xs)
+                  kxs           = conApp k (map qvar xs)
             , i <- [0..length arg_types-1]
             , let xi = qvar (xs !! i)
             ]
+
+        evalidentities = concat $
+                         [ [ qforalls $ evalPred kxs kxs
+                           -- , qforalls $ evalPred kxs rTm ==> qexists ys (rTm === kys)
+                           -- , qforalls $ [evalPred xTm kxs, evalPred xTm rTm] ===>
+                           --                                       qexists ys (rTm === kys)
+                           ]
+                         | dc <- dcs
+                         , let (k,arg_types) = dcIdArgTypes dc
+                               xs            = zipWith setVarType varNames arg_types
+                               restVarNames  = drop (length xs) varNames
+                               ys            = zipWith setVarType restVarNames arg_types
+                               kxs           = conApp k (map qvar xs)
+                               kys           = conApp k (map qvar ys)
+                         ]
 
      -- Discriminations,  for j,k in the same TyCon + unr/bad, make j and k disjoint
 
@@ -66,11 +95,11 @@ tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
 
             -- (but for newtypes just say k(x) = x)
             | isNewTyCon ty_con =
-                [ forall' [u] (apply k [u'] === u')
+                [ qforall [u] (conApp k [uTm] === uTm)
                 | dc <- dcs
                 , let (k,[t]) = dcIdArgTypes dc
-                      u = setVarType x t
-                      u' = qvar u
+                      u  = setVarType x t
+                      uTm = qvar u
                 ]
 
             | otherwise =
@@ -105,7 +134,7 @@ tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
             { provides    = Data ty_con
             , depends     = []
             , description = showSDoc (pprSourceTyCon ty_con)
-            , formulae    = projections ++ discrims
+            , formulae    = projections ++ discrims ++ evalidentities
             }
         : pointer_subthys
 
@@ -120,10 +149,11 @@ data Disjoint = Disjoint
     }
 
 -- | Makes these two entries disjoint
-makeDisjoint :: HaloConf -> Disjoint -> Disjoint -> Formula'
+makeDisjoint :: HaloConf -> Disjoint -> Disjoint -> VFormula
 makeDisjoint HaloConf{or_discr} dj dk =
-      foralls $ ([ min' lhs | j_min ] ++ [ min' rhs | k_min ])
-                `implies` (lhs =/= rhs)
+         qforalls (lhs =/= rhs) 
+--         qforalls $ ([ minPred lhs | j_min ] ++ [ minPred rhs | k_min ])
+--                `implies` (lhs =/= rhs)
   where
     Disjoint j j_arg_types j_ptr j_min = dj
     Disjoint k k_arg_types k_ptr k_min = dk
@@ -140,7 +170,7 @@ makeDisjoint HaloConf{or_discr} dj dk =
 
     mkSide i i_args i_ptr
         | i_ptr     = ptr i
-        | otherwise = apply i (map qvar i_args)
+        | otherwise = conApp i (map qvar i_args)
 
     lhs  = mkSide j j_args j_ptr
     rhs  = mkSide k k_args k_ptr
@@ -150,7 +180,7 @@ appOnMin = Subtheory
     { provides    = AppOnMin
     , depends     = []
     , description = "App on min"
-    , formulae    = [forall' [f,x] $ min' (app f' x') ==> min' f']
+    , formulae    = [qforall [f,x] $ minPred (app fTm xTm) ==> minPred fTm]
     }
 
 extEq :: Subtheory s
@@ -158,8 +188,8 @@ extEq = Subtheory
     { provides    = ExtensionalEquality
     , depends     = []
     , description = "Extensional equality"
-    , formulae    = return $
-         forall' [f,g] (forall' [x] (app f' x' === app g' x') ==> f' === g')
+    , formulae    = [ qforall [f,g] $ 
+                         (qforall [x] (app fTm xTm === app gTm xTm)) ==> fTm === gTm ]
     }
 
 dummyAny :: Subtheory s

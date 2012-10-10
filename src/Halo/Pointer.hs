@@ -11,7 +11,7 @@ import Id
 import Halo.FOL.Abstract
 
 import Halo.Conf
-import Halo.Names (varNames)
+import Halo.Names ( varNames )
 import Halo.Subtheory
 
 -- | Makes a pointer to a constructor or function, given its arity
@@ -22,8 +22,8 @@ mkPtr HaloConf{ext_eq} h arity = Subtheory
     , description = "Pointer axiom to " ++ show h
     , formulae    =
         let lhs = apps (ptr h) as'
-            rhs = fun h as'
-        in  [forall' as $ {- ors [min' lhs,min' rhs] ==> -} lhs === rhs]
+            rhs = funOrConApp h as'
+        in  [qforall as $ {- ors [min' lhs,min' rhs] ==> -} lhs === rhs]
                             -- ^ new dimitrios' style
     }
   where

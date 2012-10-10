@@ -125,7 +125,7 @@ projId n dc = asks (fromMaybe err . B.lookup (n,dc) . projections)
   where
     err = error $ "projId: cannot find proj " ++ show n ++ " " ++ getOccString dc
 
-idProj :: HaloM (Id -> Maybe (Term' -> Term'))
+idProj :: HaloM (Id -> Maybe (VTerm -> VTerm))
 idProj = do
     m <- asks projections
     return $ \i -> case B.lookupR i m of

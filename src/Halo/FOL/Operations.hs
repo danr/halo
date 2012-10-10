@@ -8,7 +8,8 @@ import Data.Generics.Geniplate
 import qualified Data.Set as S
 import Data.Set (Set)
 
-replaceVarsTm :: (v -> u) -> Term q v -> Term q u
+replaceVarsTm :: (v -> u)
+              -> Term q v -> Term q u
 replaceVarsTm k = go
   where
     go tm = case tm of
@@ -22,7 +23,8 @@ replaceVarsTm k = go
         Prim p as  -> Prim p (map go as)
         Lit i      -> Lit i
 
-replaceQVarsTm :: (q -> r) -> Term q v -> Term r v
+replaceQVarsTm :: (q -> r)
+               -> Term q v -> Term r v
 replaceQVarsTm k = go
   where
     go tm = case tm of
@@ -36,7 +38,8 @@ replaceQVarsTm k = go
         Prim p as  -> Prim p (map go as)
         Lit i      -> Lit i
 
-formulaMapTerms :: (Term q v -> Term r u) -> (q -> r)
+formulaMapTerms :: (Term q v -> Term r u)
+                -> (q -> r)
                 -> Formula q v -> Formula r u
 formulaMapTerms tm qv = go
   where
@@ -63,37 +66,99 @@ clauseMapFormula k cl = case cl of
     Clause c s f -> Clause c s (k f)
     Comment s    -> Comment s
 
-allSymbols :: forall q v . Ord v => Formula q v -> [v]
-allSymbols = S.toList . S.unions . map get . universeBi
-  where
-    get :: Term q v -> Set v
-    get (Fun v _)    = S.singleton v
-    get (Ctor v _)   = S.singleton v
-    get (Skolem v)   = S.singleton v
-    get (Proj _ v _) = S.singleton v
-    get (Ptr v)      = S.singleton v
-    get _            = S.empty
+allSymbolsOfTerms :: Ord v => [Term q v] -> S.Set v
+allSymbolsOfTerms tms = S.unions (map allSymbolsOfTerm tms)
 
-allSymbols' :: Ord v => Clause q v -> [v]
-allSymbols' (Clause _ _ f) = allSymbols f
-allSymbols' (Comment _)    = []
+allSymbolsOfTerm :: Ord v => Term q v -> S.Set v
+allSymbolsOfTerm x
+  = go x S.empty
+  where go (Fun v tms) acc   = foldr go (v `S.insert` acc) tms
+        go (Ctor v tms) acc  = foldr go (v `S.insert` acc) tms
+        go (Skolem v) acc    = v `S.insert` acc
+        go (Proj _ v tm) acc = go tm (v `S.insert` acc)
+        go (Ptr v) acc       = v `S.insert` acc
+        go (QVar _) acc      = acc
+        go (Prim _ tms) acc  = foldr go acc tms
+        go (Lit _) acc       = acc
+        go (App t1 t2) acc   = foldr go acc [t1,t2]
 
-allQuant :: forall q v . Ord q => Formula q v -> [q]
-allQuant phi = S.toList . S.unions $
-    map getTm (universeBi phi) ++ map getFm (universeBi phi)
-  where
-    getTm :: Term q v -> Set q
-    getTm (QVar v) = S.singleton v
-    getTm _        = S.empty
+allSymbolsOfForm :: Ord v => Formula q v -> S.Set v
+allSymbolsOfForm x
+  = go x S.empty
+  where go (Equal t1 t2) acc   = S.union (allSymbolsOfTerms [t1,t2]) acc
+        go (Unequal t1 t2) acc = S.union (allSymbolsOfTerms [t1,t2]) acc
+        go (And fms) acc = foldr go acc fms
+        go (Or fms) acc  = foldr go acc fms
+        go (Implies f1 f2) acc = foldr go acc [f1,f2]
+        go (Forall _ fm) acc = go fm acc
+        go (Exists _ fm) acc = go fm acc
+        go (Pred _ tms) acc  = S.union (allSymbolsOfTerms tms) acc
+        go (Neg fm) acc      = go fm acc
+        
+allSymbolsOfClause :: Ord v => Clause q v -> S.Set v
+allSymbolsOfClause (Clause _ _ fm) = allSymbolsOfForm fm
+allSymbolsOfClause _ = S.empty
 
-    getFm :: Formula q v -> Set q
-    getFm (Forall qs _) = S.fromList qs
-    getFm _             = S.empty
 
-allQuant' :: Ord q => Clause q v -> [q]
-allQuant' (Clause _ _ f) = allQuant f
-allQuant' (Comment _ )   = []
+allQuantOfTerms :: Ord q => [Term q v] -> S.Set q
+allQuantOfTerms tms = S.unions (map allQuantOfTerm tms)
 
+allQuantOfTerm :: Ord q => Term q v -> S.Set q
+allQuantOfTerm x
+  = go x S.empty
+  where go (Fun _v tms) acc   = foldr go acc tms
+        go (Ctor _v tms) acc  = foldr go acc tms
+        go (Skolem _v) acc    = acc
+        go (Proj _ _v tm) acc = go tm acc
+        go (Ptr _v) acc       = acc
+        go (QVar q) acc       = q `S.insert` acc
+        go (Prim _ tms) acc   = foldr go acc tms
+        go (Lit _) acc        = acc
+        go (App t1 t2) acc    = foldr go acc [t1,t2]
+
+allQuantOfForm :: Ord q => Formula q v -> S.Set q
+allQuantOfForm x
+  = go x S.empty
+  where go (Equal t1 t2) acc   = S.union (allQuantOfTerms [t1,t2]) acc
+        go (Unequal t1 t2) acc = S.union (allQuantOfTerms [t1,t2]) acc
+        go (And fms) acc = foldr go acc fms
+        go (Or fms) acc  = foldr go acc fms
+        go (Implies f1 f2) acc = foldr go acc [f1,f2]
+        go (Forall qs fm) acc  = go fm (S.fromList qs `S.union` acc) -- Is this right?
+        go (Exists qs fm) acc  = go fm (S.fromList qs `S.union` acc) -- Is this right? 
+        go (Pred _ tms) acc    = S.union (allQuantOfTerms tms) acc
+        go (Neg fm) acc        = go fm acc
+
+-- allQuant :: forall q v . Ord q => Formula q v -> [q]
+-- allQuant phi = S.toList . S.unions $
+--     map getTm (universeBi phi) ++ map getFm (universeBi phi)
+--   where
+--     getTm :: Term q v -> Set q
+--     getTm (QVar v) = S.singleton v
+--     getTm _        = S.empty
+
+--     getFm :: Formula q v -> Set q
+--     getFm (Forall qs _) = S.fromList qs
+--     getFm _             = S.empty
+
+allQuantOfClause :: Ord q => Clause q v -> S.Set q
+allQuantOfClause (Clause _ _ f) = allQuantOfForm f
+allQuantOfClause (Comment _ )   = S.empty
+
+
+substVar :: Eq v => v -> v -> Formula q v -> Formula q v
+substVar old new
+  = formulaMapTerms (replaceVarsTm subst_var) id
+  where subst_var x = if x == old then new else x
+ 
+-- substQVarX :: Eq q => q -> q -> Formula q v -> Formula q v
+-- -- Rewrites the qvars in a quantifier-free formula 
+-- substQVarX old new 
+--  = formulaMapTerms rewrite_qvar id
+--  where rewrite_qvar (QVar v) | v == old = QVar new
+--        rewrite_qvar other               = other
+
+{- 
 substVars :: forall q v . Eq v => v -> v -> Formula q v -> Formula q v
 substVars old new = rewriteBi s
   where
@@ -116,6 +181,7 @@ rewriteBi f = transformBi g
   where
     g :: s -> s
     g x = maybe x (rewriteBi f) (f x)
+-}
 
 -- Querying
 

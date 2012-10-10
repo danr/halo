@@ -16,7 +16,7 @@ import Var
 import VarSet
 import TyCon
 
-import Halo.Names
+import qualified Halo.Names as N
 import Halo.Subtheory
 
 import Data.Maybe
@@ -29,7 +29,7 @@ classBinds classes =
                 [(DataAlt dc,ty_vars ++ xs',Var (xs' !! i))]
     | cls <- classes
     , let DataTyCon [dc] _ = algTyConRhs (classTyCon cls)
-          v:w:xs  = varNames
+          v:w:xs  = N.varNames
           [v',w'] = map (`setVarType` (snd . splitFunTys . dropForAlls $ dataConType dc)) [v,w]
           ty_vars = dataConAllTyVars dc
           xs'     = zipWith (\u m -> setVarType u (varType m)) xs (classMethods cls)

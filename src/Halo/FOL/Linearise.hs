@@ -17,11 +17,11 @@ import Halo.FOL.Internals.Internals
 import Halo.FOL.Abstract
 
 -- | Linearise string clauses with strStyle
-linStrStyleTPTP :: StyleConf -> [StrClause] -> String
+linStrStyleTPTP :: StyleConf -> [SClause] -> String
 linStrStyleTPTP = linTPTP . strStyle
 
 -- | Linearise string clauses with strStyle
-linVarStyleTPTP :: StyleConf -> [Clause'] -> String
+linVarStyleTPTP :: StyleConf -> [VClause] -> String
 linVarStyleTPTP = linTPTP . varStyle
 
 -- | Linearise a set of clauses to a String
@@ -84,7 +84,9 @@ linForm st par form = case form of
     Pred Min [tm]    -> linMin st <> parens (linTm st tm)
     Pred MinRec [tm] -> linMinRec st <> parens (linTm st tm)
     Pred CF [tm]     -> linCF st <> parens (linTm st tm)
+    Pred ECF [tm]    -> linECF st <> parens (linTm st tm)
     Pred IsType tms  -> linIsType st <> parens (csv (map (linTm st) tms))
+    Pred Eval tms    -> linEval st <> parens (csv (map (linTm st) tms))
     Pred p xs        -> error $ "linForm: panic predicate "
                             ++ show p ++ " args: " ++ show (length xs)
 
@@ -198,6 +200,9 @@ data Style q v = Style
     , linMinRec   :: SDoc
     -- ^ The minrec symbol
     , linCF       :: SDoc
+    , linECF      :: SDoc
+    -- ^ The eval symbol  
+    , linEval     :: SDoc
     -- ^ The CF symbol
     , linIsType       :: SDoc
     -- ^ The IsType symbol
@@ -227,6 +232,8 @@ strStyle StyleConf{..} = Style
     , linMin      = text ((style_dollar_min ? ('$':)) "min")
     , linMinRec   = text "minrec"
     , linCF       = text "cf"
+    , linECF      = text "ecf"
+    , linEval     = text "eval"
     , linIsType   = text "type"
     , linProj     = \i n -> text (quoteEscape ("p_" ++ show i ++ "_" ++ n))
     , linPtr      = text . quoteEscape . ("ptr_" ++)
@@ -244,6 +251,8 @@ varStyle StyleConf{..} = Style
     , linMin      = text ((style_dollar_min ? ('$':)) "min")
     , linMinRec   = text "minrec"
     , linCF       = text "cf"
+    , linECF      = text "ecf"
+    , linEval     = text "eval"
     , linIsType   = text "type"
     , linProj     = \i n -> char 's' <> ppr (varUnique n) <> underscore <> ppr i
     , linPtr      = (char 'p' <>) . ppr . varUnique

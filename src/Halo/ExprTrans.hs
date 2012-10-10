@@ -38,7 +38,7 @@ import Control.Monad.Reader
 import Control.Monad.Error
 
 -- | Translate an expression to a term
-trExpr :: CoreExpr -> HaloM Term'
+trExpr :: CoreExpr -> HaloM VTerm
 trExpr e = do
     HaloEnv{..} <- ask
     id_proj <- idProj
@@ -52,7 +52,7 @@ trExpr e = do
             | x `elem` skolems  -> return (skolem x)
             | isPAP x           -> usePtr x >> return (ptr x)
             | isQuant x         -> return (qvar x)
-            | otherwise         -> return (con x) -- con or caf
+            | otherwise         -> return (funOrConApp x []) -- con or caf
         App{} -> case second trimTyArgs (collectArgs e) of
             (Var f,es)
                 | null es -> trExpr (Var f)
@@ -67,7 +67,7 @@ trExpr e = do
                         else do
                             let (es_inner,es_after) = splitAt i es
                             unless (null es_after) regApp
-                            inner <- apply f <$> mapM trExpr es_inner
+                            inner <- funOrConApp f <$> mapM trExpr es_inner
                             apps inner <$> mapM trExpr es_after
                 | Just p <- trPrim f (length es) ->
                     p <$> mapM trExpr es
@@ -100,7 +100,7 @@ trExpr e = do
     intErr s = throwError $ "trExpr: internal error, unexpected " ++ s
                          ++ "\n    in expression: " ++ showExpr e
 
-trPrim :: Var -> Int -> Maybe ([Term'] -> Term')
+trPrim :: Var -> Int -> Maybe ([VTerm] -> VTerm)
 trPrim v no_args = do
     let n = getOccString v
     m <- moduleNameString . moduleName <$> nameModule_maybe (varName v)

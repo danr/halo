@@ -1,14 +1,15 @@
 {-# LANGUAGE PatternGuards, FlexibleContexts #-}
 -- (c) Dan Rosén 2012
 module Halo.FOL.Abstract
-    ( Term', Formula', Clause'
-    , StrTerm, StrFormula, StrClause
+    ( VTerm, VFormula, VClause
+    , STerm, SFormula, SClause
 
-    , apply, con
+    -- , apply, con
 
-    , fun, fun0
-    , ctor, ctor0
+    -- , fun, fun0
+    -- , ctor, ctor0
 
+    , conApp, funApp, funOrConApp
     , app, apps
     , proj
     , qvar
@@ -21,19 +22,23 @@ module Halo.FOL.Abstract
     , simpleCNF
     , splitFormula, splitFormulae
 
+      -- Logical connectives and formula introductions
     , (===), (=/=)
     , (==>), (===>)
     , (<=>), (<==>)
     , (/\), ands
     , (\/), ors
     , neg
-    , forall', exists'
-    , foralls
+    , qforall, qexists
+    , qforalls
 
-    , min', minrec
-    , cf
-    , isType
-
+      -- Predicates 
+    , minPred
+    , minRecPred
+    , cfPred, ecfPred
+    , isTypePred
+    , evalPred
+      
     , Formula
     , Term
     , Prim(..)
@@ -58,16 +63,16 @@ import Halo.FOL.Operations
 
 import Halo.FreeTyCons (isNewtypeConId)
 
-import Control.Applicative ((<*>))
-import Data.Generics.Geniplate
+import qualified Data.Set as Set
 
-type Term'    = Term    Var Var
-type Formula' = Formula Var Var
-type Clause'  = Clause  Var Var
+-- Terms with variables 
+type VTerm    = Term    Var Var
+type VFormula = Formula Var Var
+type VClause  = Clause  Var Var
 
-type StrTerm    = Term    String String
-type StrFormula = Formula String String
-type StrClause  = Clause  String String
+type STerm    = Term    String String
+type SFormula = Formula String String
+type SClause  = Clause  String String
 
 comment :: String -> Clause q v
 comment = Comment
@@ -81,33 +86,42 @@ namedClause = Clause
 clauseSplit :: ClType -> Formula q v -> [Clause q v]
 clauseSplit cl_type = map (clause cl_type) . splitFormula
 
+
 -- | Figure out if this var is one of the primitive constants, or if
 --   it is a data constructor or a function, and make a term accordingly.
-apply :: Var -> [Term q Var] -> Term q Var
-apply x as
+funOrConApp :: Var -> [Term q Var] -> Term q Var
+funOrConApp x as
     | isId x && (isConLikeId x || isNewtypeConId x) = Ctor x as
-    | otherwise                                     = Fun x as
+    | otherwise                                     = funApp x as
 
--- | Make a term of this primitive constant, constructor or CAF.
-con :: Var -> Term q Var
-con x = apply x []
+-- -- | Make a term of this primitive constant, constructor or CAF.
+-- con :: Var -> Term q Var
+-- con x = apply x []
 
-fun :: v -> [Term q v] -> Term q v
-fun = Fun
+-- fun :: v -> [Term q v] -> Term q v
+-- fun = Fun
 
-fun0 :: v -> Term q v
-fun0 a = Fun a []
+-- fun0 :: v -> Term q v
+-- fun0 a = Fun a []
 
-ctor :: v -> [Term q v] -> Term q v
-ctor = Ctor
+-- ctor :: v -> [Term q v] -> Term q v
+-- ctor = Ctor
 
-ctor0 :: v -> Term q v
-ctor0 a = Ctor a []
+-- ctor0 :: v -> Term q v
+-- ctor0 a = Ctor a []
 
-app :: Term q v -> Term q v -> Term q v
-app = App
+conApp :: Var -> [Term q Var] -> Term q Var
+-- Precondition: isId x && (isConLikeId x || isNewtypeConId x)
+conApp = Ctor
 
-apps :: Term q v -> [Term q v] -> Term q v
+funApp :: Var -> [Term q Var] -> Term q Var
+-- Precondition: is variable
+funApp v = Fun v -- foldl App (Ptr v)
+
+app :: Term q Var -> Term q Var -> Term q Var
+app = App 
+
+apps :: Term q Var -> [Term q Var] -> Term q Var
 apps = foldl App
 
 proj :: Int -> v -> Term q v -> Term q v
@@ -195,31 +209,36 @@ neg (Forall as f)   = Exists as (neg f)
 neg (Exists as f)   = Forall as (neg f)
 neg f               = Neg f
 
-forall' :: [q] -> Formula q v -> Formula q v
-forall' [] f = f
-forall' as f = Forall as f
+qforall :: [q] -> Formula q v -> Formula q v
+qforall [] f = f
+qforall as f = Forall as f
 
-exists' :: [q] -> Formula q v -> Formula q v
-exists' [] f = f
-exists' as f = Exists as f
+qexists :: [q] -> Formula q v -> Formula q v
+qexists [] f = f
+qexists as f = Exists as f
 
-foralls :: (UniverseBi (Formula q v) (Formula q v)
-           ,UniverseBi (Formula q v) (Term q v)
-           ,Ord q)
-        => Formula q v -> Formula q v
-foralls = flip forall' <*> allQuant
+qforalls :: Ord q => Formula q v -> Formula q v
+qforalls fm = qforall qvars fm
+  where qvars = Set.toList (allQuantOfForm fm)
+        
 
-min' :: Term q v -> Formula q v
-min' t = Pred Min [t]
+minPred :: Term q v -> Formula q v
+minPred t = Pred Min [t]
 
-minrec :: Term q v -> Formula q v
-minrec t = Pred MinRec [t]
+minRecPred :: Term q v -> Formula q v
+minRecPred t = Pred MinRec [t]
 
-cf :: Term q v -> Formula q v
-cf t = Pred CF [t]
+cfPred :: Term q v -> Formula q v
+cfPred t = Pred CF [t]
 
-isType :: Term q v -> Term q v -> Formula q v
-isType t1 t2 = Pred IsType [t1,t2]
+ecfPred :: Term q v -> Formula q v
+ecfPred t = Pred ECF [t]
+
+isTypePred :: Term q v -> Term q v -> Formula q v
+isTypePred t1 t2 = Pred IsType [t1,t2]
+
+evalPred :: Term q v -> Term q v -> Formula q v
+evalPred t1 t2 = Pred Eval [t1,t2]
 
 type Atomic q v = Formula q v
 
@@ -238,7 +257,7 @@ isAtomic f = case f of
 
 -- | Can this formula be written simply in CNF?
 simpleCNF :: Formula q v -> Maybe [Atomic q v]
-simpleCNF (Forall _ f)              = simpleCNF f
+simpleCNF (Forall _ _f)             = Nothing 
 simpleCNF (Implies f1 f2)           = simpleCNF (neg f1 \/ f2)
 simpleCNF (Or fs) | all isAtomic fs = Just fs
 simpleCNF f       | isAtomic f      = Just [f]
@@ -247,7 +266,7 @@ simpleCNF _                         = Nothing
 -- | Split the conjuncts of a formula over many formulae,
 --   distributing any foralls over them
 splitFormula :: Formula q v -> [Formula q v]
-splitFormula (Forall vs fs) = map (forall' vs) (splitFormula fs)
+splitFormula (Forall vs fs) = map (qforall vs) (splitFormula fs)
 splitFormula (And fs)       = concatMap splitFormula fs
 splitFormula f              = [f]
 
@@ -280,7 +299,6 @@ question :: ClType
 question = Question
 
 -- Making many clauses
-
 axioms :: [Formula q v] -> [Clause q v]
 axioms = map (clause axiom)
 

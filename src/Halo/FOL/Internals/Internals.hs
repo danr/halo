@@ -32,7 +32,7 @@ data Prim = Add | Sub | Mul | Eq | Ne | Lt | Le | Ge | Gt | LiftBool
   deriving (Eq,Ord,Show)
 
 -- | Predicates
-data Pred = CF | Min | MinRec | IsType
+data Pred = CF | Min | MinRec | IsType | Eval | ECF
   deriving (Eq,Ord,Show)
 
 -- | Formulae
@@ -42,7 +42,6 @@ data Formula q v
     | And [Formula q v]
     | Or  [Formula q v]
     | Implies (Formula q v) (Formula q v)
---  | Equiv   (Formula q v) (Formula q v)
     | Neg (Formula q v)
     | Forall [q] (Formula q v)
     | Exists [q] (Formula q v)
@@ -50,8 +49,13 @@ data Formula q v
   deriving (Eq,Ord,Show)
 
 data ClType
-    = Axiom | Lemma | Hypothesis | Definition
-    | Conjecture | NegatedConjecture | Question
+  = Axiom
+  | Lemma
+  | Hypothesis
+  | Definition
+  | Conjecture
+  | NegatedConjecture
+  | Question
   deriving (Eq,Ord,Show)
 
 data Clause q v
