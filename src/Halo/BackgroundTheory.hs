@@ -45,8 +45,10 @@ backgroundTheory halo_conf ty_cons
 tyConSubtheories :: HaloConf -> [TyCon] -> [Subtheory s]
 tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
     [ -- Projections, for each constructor k
-    let projections =
-            [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi
+    let projections = concat
+            [ [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi ] ++
+              [ foralls $ minrec kxs ==> ands (map (minrec.qvar) xs) ]
+              
             -- Used to also have min' xi ==>
             | dc <- dcs
             , let (k,arg_types) = dcIdArgTypes dc
@@ -146,7 +148,8 @@ appOnMin = Subtheory
     { provides    = AppOnMin
     , depends     = []
     , description = "App on min"
-    , formulae    = [forall' [f,x] $ min' (app f' x') ==> min' f']
+    , formulae    = [forall' [f,x] $ min' (app f' x') ==> min' f'
+                    ]
     }
 
 extEq :: Subtheory s
