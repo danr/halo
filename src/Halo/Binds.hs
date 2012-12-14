@@ -124,10 +124,27 @@ trBindPart :: BindPart s -> HaloM Formula'
 trBindPart BindPart{..} = do
     tr_constr <- trConstraints bind_constrs
     lhs <- apply bind_fun <$> mapM trExpr bind_args
-    consequent <- case bind_rhs of
-        Min scrut -> min' <$> trExpr scrut
-        Rhs rhs   -> (lhs ===) <$> trExpr rhs
-    return $ foralls (min' lhs : tr_constr ===> consequent)
+
+{-
+    case bind_rhs of
+        Min scrut -> -- min' <$> trExpr scrut
+          do { s <- trExpr scrut
+             ; return $ foralls ([min' lhs] ===> min' s) }
+        Rhs rhs   -> -- (lhs ===) <$> trExpr rhs
+          do { r <- trExpr rhs
+             ; return $ foralls (min' lhs : tr_constr ===> (lhs === r)) }
+--    return $ foralls (min' lhs : tr_constr ===> consequent)
+-}    
+    -- consequent <-
+    case bind_rhs of
+        Min scrut -> -- min' <$> trExpr scrut
+          do { s <- trExpr scrut
+             ; return $ foralls ((min' lhs : tr_constr) ===> min' s) }
+        Rhs rhs   -> -- (lhs ===) <$> trExpr rhs
+          do { r <- trExpr rhs
+             ; return $ foralls (tr_constr ===> (lhs === r)) }
+--    return $ foralls (min' lhs : tr_constr ===> consequent)
+
 
 -- | Make a subtheory for bind parts that regard the same function
 trBindParts :: Ord s => Var -> CoreExpr -> BindParts s -> HaloM (Subtheory s)
@@ -172,7 +189,6 @@ trDecl f e = do
             { current_fun = f
             , args        = map Var as
             }
-
     write $ "Translating " ++ idToStr f ++ ", args: " ++ unwords (map idToStr as)
 
     bind_parts <- local new_env (trCase e')
@@ -297,9 +313,11 @@ trAlt :: Ord s => CoreExpr -> CoreAlt -> HaloM (BindParts s)
 trAlt scrut_exp (cons,bound,e) = do
 
     (subst_expr,equality_constraint) <- case cons of
-        DataAlt data_con -> return
+        DataAlt data_con ->
+          return
             (foldApps (Var (dataConWorkId data_con)) (map Var bound)
             ,Equality scrut_exp data_con (map Var bound))
+            
         LitAlt lit@(MachInt i) -> return
             (Lit lit,LitEquality scrut_exp i)
         LitAlt lit@(LitInteger i _) -> return
@@ -311,10 +329,13 @@ trAlt scrut_exp (cons,bound,e) = do
     let isQuant x = x `M.notMember` arities
 
     case removeCruft scrut_exp of
-        Var x | isQuant x && not var_scrut_constr -> do
+      {- DV!!!!!! Don't inline! -} 
+{-      Var x | isQuant x && not var_scrut_constr -> do
             let s = extendIdSubst emptySubst x subst_expr
                 e' = substExpr (text "trAlt") s e
             local (substContext s) (trCase e')
+-}
+            
         _ -> local (pushConstraint equality_constraint) (trCase e)
 
 -- | Translate and nub constraints
@@ -331,10 +352,14 @@ trConstraints constrs = do
 
 -- | Translate one constraint
 trConstr :: Constraint -> HaloM Formula'
-trConstr (Equality e data_con bs) = do
-    lhs <- trExpr e
-    rhs <- apply (dataConWorkId data_con) <$> mapM trExpr bs
-    return $ lhs === rhs
+trConstr (Equality e data_con bs)
+  = do { lhs <- trExpr e
+       ; ebs <- mapM trExpr bs
+       ; let rhs = apply (dataConWorkId data_con) ebs
+       ; let rest = zipWith (\b i -> proj i (dataConWorkId data_con) lhs === b) ebs [0..]
+       ; return $ ands ((lhs === rhs):rest)
+       }
+    
 trConstr (Inequality e data_con) = do
     lhs <- trExpr e
     let rhs = apply (dataConWorkId data_con)

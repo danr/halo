@@ -50,7 +50,11 @@ trExpr e = do
         Var x
             | x `elem` skolems  -> return (skolem x)
             | isPAP x           -> usePtr x >> return (ptr x)
-            | isQuant x         -> return (qvar x)
+            | isQuant x -> return (qvar x)
+                -- -> do { case lookup x henv_subst of
+                --              Nothing  -> return (qvar x)
+                --              Just tm' -> trExpr tm'
+                --       }
             | otherwise         -> return (con x) -- con or caf
         App{} -> case second trimTyArgs (collectArgs e) of
             (Var f,es)

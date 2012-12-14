@@ -76,6 +76,8 @@ import Halo.Shared
 import Halo.Util
 import Halo.Subtheory
 
+import Halo.FOL.Abstract
+
 import qualified Data.Map as M
 import Data.Map (Map)
 import Data.Maybe
@@ -108,7 +110,7 @@ data HaloEnv = HaloEnv
     -- ^ Current min-set (of cased scrutinees) when translating a bind
     , conf        :: HaloConf
     -- ^ Configuration
-    }
+     }
 
 -- | Registers a variable as a skolem variable
 addSkolem :: Var -> HaloEnv -> HaloEnv
