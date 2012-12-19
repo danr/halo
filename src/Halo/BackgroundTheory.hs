@@ -46,8 +46,8 @@ tyConSubtheories :: HaloConf -> [TyCon] -> [Subtheory s]
 tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
     [ -- Projections, for each constructor k
     let projections = concat
-            [ [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi ] ++
-              [ foralls $ minrec kxs ==> ands (map (minrec.qvar) xs) ]
+            [ [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi ]
+--            ++ [ foralls $ minrec kxs ==> ands (map (minrec.qvar) xs) ]
               
             -- Used to also have min' xi ==>
             | dc <- dcs
@@ -148,7 +148,8 @@ appOnMin = Subtheory
     { provides    = AppOnMin
     , depends     = []
     , description = "App on min"
-    , formulae    = [forall' [f,x] $ min' (app f' x') ==> min' f'
+    , formulae    = [ forall' [f,x] $ min' (app f' x') ==> min' f'
+--                    , forall' [x] $ ors [min' x', x' === unr] -- DV !!!!! This is important for the contract translation!
                     ]
     }
 

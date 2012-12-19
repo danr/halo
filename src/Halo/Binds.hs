@@ -142,7 +142,7 @@ trBindPart BindPart{..} = do
              ; return $ foralls ((min' lhs : tr_constr) ===> min' s) }
         Rhs rhs   -> -- (lhs ===) <$> trExpr rhs
           do { r <- trExpr rhs
-             ; return $ foralls (tr_constr ===> (lhs === r)) }
+             ; return $ foralls (min' lhs : tr_constr ===> (lhs === r)) }
 --    return $ foralls (min' lhs : tr_constr ===> consequent)
 
 
