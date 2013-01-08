@@ -76,6 +76,7 @@ go vs es
     interesting i = not (i `elemVarSet` vs) && isGlobalId i
 
     maybe_unfold :: Var -> Writer [String] (Maybe (Id,CoreExpr))
+    maybe_unfold x | not (isId x) = return Nothing
     maybe_unfold x = do
         let res = fmap ((,) x) (maybeUnfoldingTemplate (realIdUnfolding x))
         write $ "Unfolding of " ++ showOutputable x ++ ": " ++ showOutputable res

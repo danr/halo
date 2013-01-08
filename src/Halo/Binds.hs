@@ -26,6 +26,8 @@
 -}
 module Halo.Binds
     ( trBinds
+    , trOneBind
+    , trPointers
     , BindPart(..), BindParts, BindMap, minRhs
     , trBindPart
     , trConstraints
@@ -75,6 +77,15 @@ trBinds binds = do
     (fun_subthys,bind_maps) <- mapAndUnzipM (uncurry trBind) (flattenBinds binds)
 
     return (fun_subthys ++ pointer_subthys,M.unions bind_maps)
+
+trPointers :: (Ord s,Show s) => HaloM [Subtheory s]
+trPointers = do
+    HaloEnv{..} <- ask
+
+    return $ map (uncurry (mkPtr conf)) (M.toList arities)
+
+trOneBind :: (Ord s,Show s) => CoreBind -> HaloM ([Subtheory s],BindMap s)
+trOneBind bind = second M.unions <$> mapAndUnzipM (uncurry trBind) (flattenBinds [bind])
 
 -- | We chop up a bind to several bind parts to be able to split
 --   goals later to several invocations to theorem provers
@@ -346,15 +357,15 @@ trConstr (LitInequality e i) = (litInteger i =/=) <$> trExpr e
 -- | Non-pointer dependencies of an expression
 exprDeps :: Ord s => CoreExpr -> Set (Content s)
 exprDeps = S.fromList
-         . ((++) <$> (map Function . exprFVs) <*> (map Data . freeTyCons))
+         . ((++) <$> (map Function . filter isId . exprFVs) <*> (map Data . freeTyCons))
 
 -- | Non-pointer dependencies of a constraint
 constraintDeps :: Ord s => Constraint -> Set (Content s)
 constraintDeps c = case c of
     Equality e dc _es    -> S.insert (dcContent dc) (exprDeps e)
     Inequality e dc      -> S.insert (dcContent dc) (exprDeps e)
-    LitEquality e _      -> (exprDeps e)
-    LitInequality e _    -> (exprDeps e)
+    LitEquality e _      -> exprDeps e
+    LitInequality e _    -> exprDeps e
   where
     dcContent :: DataCon -> Content s
     dcContent = Data . dataConTyCon
@@ -381,3 +392,4 @@ bindPartDeps BindPart{..}
 
     isFunction Function{} = True
     isFunction _          = False
+

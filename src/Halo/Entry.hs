@@ -20,6 +20,8 @@ import HscTypes
 import SimplCore
 import TcRnTypes
 import UniqSupply
+import Outputable
+import StaticFlags
 
 import Halo.Util
 
@@ -38,7 +40,8 @@ desugar :: DesugarConf -> FilePath -> IO (ModGuts,DynFlags)
 desugar dc fp = first fst <$> desugarAndTypeEnv dc fp
 
 desugarAndTypeEnv :: DesugarConf -> FilePath -> IO ((ModGuts,TypeEnv),DynFlags)
-desugarAndTypeEnv DesugarConf{..} targetFile =
+desugarAndTypeEnv DesugarConf{..} targetFile = do
+  -- addOpt "-dppr-debug"
 #if __GLASGOW_HASKELL__ >= 706
   defaultErrorHandler defaultFatalMessager defaultFlushOut $
 #else
@@ -52,9 +55,9 @@ desugarAndTypeEnv DesugarConf{..} targetFile =
                                         [Opt_D_dump_simpl_stats
                                         ,Opt_D_verbose_core2core]
                 | otherwise = dflags
-            dflags' = flip dopt_unset Opt_IgnoreInterfacePragmas
+            dflags' = (flip dopt_unset Opt_IgnoreInterfacePragmas
                     $ flip dopt_unset Opt_OmitInterfacePragmas
-                    $ dopt_set dflags0 Opt_ExposeAllUnfoldings
+                    $ dopt_set dflags0 Opt_ExposeAllUnfoldings)
         void $ setSessionDynFlags dflags'
         target <- guessTarget targetFile Nothing
         setTargets [target]
