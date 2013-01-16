@@ -73,8 +73,10 @@ linClType ty = case ty of
 --   Second argument is if it should be enclosed in parentheses.
 linForm :: Style q v -> (SDoc -> SDoc) -> Formula q v -> SDoc
 linForm st par form = case form of
-    Equal   t1 t2    -> linEqOp st equals t1 t2
-    Unequal t1 t2    -> linEqOp st unequals t1 t2
+    Equal   t1 t2    -> -- text "eq" <> parens (linTm st t1 <> char ',' <> linTm st t2)
+                        linEqOp st equals t1 t2
+    Unequal t1 t2    -> -- tilde <> text "eq" <> parens (linTm st t1 <> char ',' <> linTm st t2)
+                        linEqOp st unequals t1 t2
     And fs           -> par (linBinOp st ampersand fs)
     Or  fs           -> par (linBinOp st pipe fs)
     Implies f1 f2    -> par (linBinOp st darrow [f1,f2])

@@ -104,8 +104,12 @@ linClause (Clause cl_name cl_type cl_formula)
 --   Second argument is if it should be enclosed in parentheses.
 linForm :: Formula' -> SDoc
 linForm form = parens $ case form of
-    Equal   t1 t2    -> linEqOp equals t1 t2
-    Unequal t1 t2    -> linEqOp (text "distinct") t1 t2
+    Equal   t1 t2    ->
+       -- text "eq" <+> linTerm t1 <+> linTerm t2
+       linEqOp equals t1 t2
+    Unequal t1 t2    ->
+       -- text "not" <+> (parens $ text "eq" <+> linTerm t1 <+> linTerm t2)
+       linEqOp (text "distinct") t1 t2
     And fs           -> linBinOp (text "and") fs
     Or  fs           -> linBinOp (text "or") fs
     Implies f1 f2    -> linBinOp darrow [f1,f2]

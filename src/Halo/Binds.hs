@@ -42,6 +42,7 @@ import Outputable
 import Var
 import TysPrim
 import Type
+import Halo.Names
 
 import Halo.Conf
 import Halo.Case
@@ -356,16 +357,26 @@ trConstr (Equality e data_con bs)
   = do { lhs <- trExpr e
        ; ebs <- mapM trExpr bs
        ; let rhs = apply (dataConWorkId data_con) ebs
-       ; let rest = zipWith (\b i -> proj i (dataConWorkId data_con) lhs === b) ebs [0..]
+       ; let rest = [] --    This enforces the projection form:
+                      -- DV: zipWith (\b i -> proj i (dataConWorkId data_con) lhs === b) ebs [0..]
        ; return $ ands ((lhs === rhs):rest)
        }
     
 trConstr (Inequality e data_con) = do
     lhs <- trExpr e
+    {-
     let rhs = apply (dataConWorkId data_con)
                     [ proj i (dataConWorkId data_con) lhs
                     | i <- [0..dataConSourceArity data_con-1] ]
     return $ lhs =/= rhs
+    -}
+    -- DV, getting rid of selectors entirely now ... (and injectivity!)
+    let (k,arg_types) = dcIdArgTypes data_con
+        xs            = zipWith setVarType varNames arg_types
+        kxs           = apply k (map qvar xs)
+    return $ forall' (take (length arg_types) varNames) $ lhs =/= kxs
+
+    
 trConstr (LitEquality e i)   = (litInteger i ===) <$> trExpr e
 trConstr (LitInequality e i) = (litInteger i =/=) <$> trExpr e
 

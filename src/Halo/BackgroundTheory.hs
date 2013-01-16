@@ -40,20 +40,25 @@ import Data.List
 backgroundTheory :: HaloConf -> [TyCon] -> [Subtheory s]
 backgroundTheory halo_conf ty_cons
     = extEq : appOnMin : dummyAny
-    : tyConSubtheories halo_conf ty_cons
+    : tyConSubtheories halo_conf ty_cons 
+
 
 tyConSubtheories :: HaloConf -> [TyCon] -> [Subtheory s]
 tyConSubtheories halo_conf@HaloConf{..} ty_cons = concat
     [ -- Projections, for each constructor k
     let projections = concat
-            [ [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi ]
+            [ [] -- [ foralls  $ [min' kxs {- ,min' xi -} ] ===> proj i k kxs === xi ]
+              ++
+              [] -- [ foralls  $ [min' kxs, min' kys, ands (zipWith (===) (map qvar xs) (map qvar ys))] ===> kxs === kys]
 --            ++ [ foralls $ minrec kxs ==> ands (map (minrec.qvar) xs) ]
               
             -- Used to also have min' xi ==>
             | dc <- dcs
             , let (k,arg_types) = dcIdArgTypes dc
                   xs            = zipWith setVarType varNames arg_types
+                  ys            = zipWith setVarType (drop (length xs) varNames) arg_types
                   kxs           = apply k (map qvar xs)
+                  kys           = apply k (map qvar ys)
             , i <- [0..length arg_types-1]
             , let xi = qvar (xs !! i)
             ]
@@ -130,7 +135,7 @@ makeDisjoint HaloConf{or_discr} dj dk =
     j_arity = length j_arg_types
 
     [] `implies` phi = phi
-    xs `implies` phi = (if or_discr then ors else ands) xs ==> phi
+    xs `implies` phi = ors xs ==> phi -- DV!!! (if or_discr then ors else ands) xs ==> phi
 
     (j_args0,k_args0) = second (take k_arity) (splitAt j_arity varNames)
     j_args = zipWith setVarType j_args0 j_arg_types
@@ -152,6 +157,9 @@ appOnMin = Subtheory
 --                    , forall' [x] $ ors [min' x', x' === unr] -- DV !!!!! This is important for the contract translation!
                     ]
     }
+
+
+
 
 extEq :: Subtheory s
 extEq = Subtheory
