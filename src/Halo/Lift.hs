@@ -21,6 +21,8 @@ import Unique
 import Var
 import VarSet
 
+import Data.List (partition)
+
 import Halo.Util
 import Halo.Shared
 
@@ -36,6 +38,7 @@ data LiftSettings = LiftSettings
 -- | The lift environment, current function and its arguments
 data LiftEnv = LiftEnv
     { fun      :: Var
+    , ty_args  :: [TyVar]
     , args     :: [Var]
     , settings :: LiftSettings
     }
@@ -43,12 +46,21 @@ data LiftEnv = LiftEnv
 modArgs :: ([Var] -> [Var]) -> LiftEnv -> LiftEnv
 modArgs k env = env { args = k (args env) }
 
+setArgs :: [Var] -> LiftEnv -> LiftEnv
+setArgs = modArgs . const
+
+modTyArgs :: ([TyVar] -> [TyVar]) -> LiftEnv -> LiftEnv
+modTyArgs k env = env { ty_args = k (ty_args env) }
+
+setTyArgs :: [TyVar] -> LiftEnv -> LiftEnv
+setTyArgs = modTyArgs . const
+
 setFun :: Var -> LiftEnv -> LiftEnv
 setFun f env = env { fun = f }
 
 -- | The initial environment
 initEnv :: LiftSettings -> LiftEnv
-initEnv = LiftEnv (error "initEnv: fun") []
+initEnv = LiftEnv (error "initEnv: fun") [] []
 
 -- | The lift monad
 type LiftM = WriterT [CoreBind] (ReaderT LiftEnv (WriterT [String] UniqSM))
@@ -84,14 +96,19 @@ liftCoreBind b = case b of
 -- | Translate a CoreDecl or a Let
 liftDecl :: Var -> CoreExpr -> LiftM CoreExpr
 liftDecl f e = do
-    dbgMsg $ "Lifting " ++ showOutputable f ++ ", args: " ++ showOutputable as
+    dbgMsg $ "liftDecl " ++ showOutputable f
+    dbgMsg $ "    args: " ++ showOutputable as
+    dbgMsg $ "    ty_args: " ++ showOutputable tys
     dbgMsg $ "    rhs:" ++ showExpr e
     args_ <- asks args
+    ty_args_ <- asks ty_args
     dbgMsg $ "    environment args:" ++ showOutputable args_
-    e_lifted <- local (setFun f . modArgs (++as)) (liftCase e_stripped)
-    return (mkCoreLams (args_ ++ as) e_lifted)
+    dbgMsg $ "    environment ty_args:" ++ showOutputable ty_args_
+    e_lifted <- local (setFun f . modArgs (++as) . modTyArgs (++tys))
+                      (liftCase e_stripped)
+    return (mkCoreLams (ty_args_ ++ tys ++ args_ ++ as) e_lifted)
   where
-    (as,e_stripped) = collectBinders e
+    (tys,as,e_stripped) = collectTyAndValBinders e
 
 isVar :: CoreExpr -> Bool
 isVar e0 = case e0 of
@@ -156,7 +173,7 @@ liftExpr e = case e of
     Type _         -> return e
     Coercion _     -> return e
 
-    Lam y e'       -> liftInnerLambda y e'
+    Lam{}       -> liftInnerLambda e
     Let bind in_e  -> liftInnerLet bind in_e
     Case s sv t as -> liftInnerCase s sv t as
 
@@ -176,25 +193,34 @@ mkLiftedName ty lbl = do
     return var'
 
 -- | Lift inner lambda expression
-liftInnerLambda :: Var -> CoreExpr -> LiftM CoreExpr
-liftInnerLambda x e = do
+liftInnerLambda :: CoreExpr -> LiftM CoreExpr
+liftInnerLambda e0 = do
 
-    let fv_set = exprFreeVars e
+    let (ts,xs,e) = collectTyAndValBinders e0
 
-    lam_args <- filter (`elemVarSet` fv_set) <$> asks args
+    (lam_args,lam_ty_args) <- getNewArgs (exprFreeVars e)
 
-    let lam_args_x = lam_args ++ [x]
+    let lam_args_x = lam_ty_args ++ ts ++ lam_args ++ xs
 
     new_fun <- mkLiftedName (mkPiTypes lam_args_x (exprType e)) "lam"
 
-    dbgMsg $ "Lift lambda: " ++ showExpr (Lam x e) ++ " new name: " ++ showOutputable new_fun
+    dbgMsg $ "liftInnerLambda: " ++ showExpr e0 ++
+        "\n    new name: " ++ showOutputable new_fun ++
+        "\n    args: " ++ showOutputable lam_args ++
+        "\n    ty_args: " ++ showOutputable lam_ty_args
 
-    lifted_lam <- local (modArgs (const lam_args_x) . setFun new_fun)
-                        (liftCoreBind (NonRec new_fun e))
+    lifted_lam_str <- liftCoreBindWith
+                        lam_ty_args
+                        lam_args_x
+                        (NonRec new_fun e)
 
-    tell [lifted_lam]
+    let res = mkVarApps (Var new_fun) (lam_ty_args ++ lam_args)
 
-    return $ mkVarApps (Var new_fun) lam_args
+    dbgMsg $ "liftInnerLambda: " ++ showExpr e0 ++
+        "\n    lifted to: " ++ lifted_lam_str ++
+        "\n    res: " ++ showExpr res
+
+    return res
 
 -- | Lift an inner case expression
 liftInnerCase :: CoreExpr -> Var -> Type -> [CoreAlt] -> LiftM CoreExpr
@@ -213,28 +239,61 @@ liftInnerCase scrutinee scrut_var ty alts = do
 
     dbgMsg $ "liftInnerCase: new case: " ++ showOutputable e
 
-    arg_vars <- asks args
+    (tys,as) <- asks (ty_args &&& args)
 
-    let fv_set    = exprFreeVars e
-        case_args = filter (`elemVarSet` fv_set) arg_vars
+    let used_variables = exprSomeFreeVars (`elem` (tys ++ as)) e
 
-    dbgMsg $ "liftInnerCase: case args: " ++ showOutputable case_args
+        (ty_arg_vars,arg_vars)
+            = partition isTyVar (varSetElems used_variables)
 
-    new_fun <- mkLiftedName (mkPiTypes (new_var:case_args) ty) "_case"
+    dbgMsg $ "liftInnerCase: " ++
+             "\n    case ty args: " ++ showOutputable ty_arg_vars ++
+             "\n    case args: " ++ showOutputable arg_vars
+
+
+    new_fun <- mkLiftedName (mkPiTypes (ty_arg_vars ++ new_var:arg_vars) ty) "_case"
 
     dbgMsg $ "liftInnerCase: new fun: " ++ showOutputable new_fun
 
-    lifted_case <- local (modArgs (const (new_var:case_args)) . setFun new_fun)
-                         (liftCoreBind (NonRec new_fun e))
+    {-
+    lifted_case <- local (setArgs [] . setTyArgs []) $ liftCoreBind
+        (NonRec new_fun (mkCoreLams (ty_arg_vars ++ new_var:arg_vars) e))
+
     tell [lifted_case]
 
     dbgMsg $ "liftInnerCase: lifted case: " ++ showOutputable lifted_case
+    -}
 
-    let ret = mkApps (Var new_fun) (scrutinee':map Var case_args)
+    lifted_case_str <- liftCoreBindWith
+                            ty_arg_vars
+                            (new_var:arg_vars)
+                            (NonRec new_fun e)
+
+    dbgMsg $ "liftInnerCase: lifted case: " ++ showOutputable lifted_case_str
+
+    let ret = mkApps (Var new_fun) $ map varToCoreExpr ty_arg_vars ++
+                                     [ scrutinee' ] ++
+                                     map varToCoreExpr arg_vars
 
     dbgMsg $ "liftInnerCase: returning: " ++ showOutputable ret
 
     return ret
+
+liftCoreBindWith :: [TyVar] -> [Var] -> CoreBind -> LiftM String
+liftCoreBindWith tys as b =
+    local (setTyArgs tys . setArgs as) $ do
+        b' <- liftCoreBind b
+        tell [b']
+        return (showOutputable b')
+
+getNewArgs :: VarSet -> LiftM ([Var],[TyVar])
+getNewArgs fvs = do
+    arg_vars <- asks args
+    ty_arg_vars <- asks ty_args
+
+    return ( filter (`elemVarSet` fvs) arg_vars
+           , filter (`elemVarSet` fvs) ty_arg_vars
+           )
 
 -- | Lift a let expression
 liftInnerLet :: CoreBind -> CoreExpr -> LiftM CoreExpr
@@ -251,16 +310,14 @@ liftInnerLet b in_e = do
             -- Idea: lift these binds to the top level, prepending the common
             -- free variables
 
-            arg_vars <- asks args
+            let fvs = bindFreeVars b
 
-            let all_fvs = bindFreeVars b
-                new_args = filter (`elemVarSet` all_fvs) arg_vars
+            (new_args,new_ty_args) <- getNewArgs fvs
 
             dbgMsg $
-                "liftInnerLet: free vars: " ++ showOutputable all_fvs ++
-                " new args: " ++ showOutputable new_args
-
-
+                "liftInnerLet: free vars: " ++ showOutputable fvs ++
+                "\n    new args: " ++ showOutputable new_args ++
+                "\n    new ty args: " ++ showOutputable new_ty_args
 
             -- Now all functions need to have used_fvs prepended to them
 
@@ -269,28 +326,31 @@ liftInnerLet b in_e = do
             let (vs,es) = unzip binds
 
             vs' <- forM vs $ \ v -> mkLiftedName
-                                        (mkPiTypes new_args (varType v))
-                                        (idToStr v ++ "_letrec")
+                       (mkPiTypes (new_ty_args ++ new_args) (varType v))
+                       (idToStr v ++ "_letrec")
 
             let sub = substExprList
-                        [ (v,mkVarApps (Var v') new_args)
+                        [ (v,mkVarApps (Var v') (new_ty_args ++ new_args))
                         | (v,v') <- zip vs vs' ]
 
                 es' = map sub es -- lambdas will get their new arguments from liftCoreBind
 
                 prepared_binds = Rec (zip vs' es')
 
-            dbgMsg $ "liftInnerLet: Rec, prepared to " ++ showOutputable prepared_binds
+            dbgMsg $ "liftInnerLet: Rec, prepared to "
+                ++ showOutputable prepared_binds
 
-            binds' <- local (modArgs (const new_args)) $ liftCoreBind (Rec (zip vs' es'))
+            new_binds_str <- liftCoreBindWith
+                                    new_ty_args
+                                    new_args
+                                    prepared_binds
 
-            dbgMsg $ "liftInnerLet: Rec, lifted to " ++ showOutputable binds'
-
-            tell [binds']
+            dbgMsg $ "liftInnerLet: Rec, lifted to " ++ new_binds_str
 
             let in_e' = sub in_e
 
-            dbgMsg $ "liftInnerLet: Rec, continuing with " ++ showOutputable in_e'
+            dbgMsg $ "liftInnerLet: Rec, continuing with "
+                ++ showOutputable in_e'
 
             liftExpr in_e'
 
