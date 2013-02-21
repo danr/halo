@@ -84,9 +84,10 @@ liftCoreBind b = case b of
 -- | Translate a CoreDecl or a Let
 liftDecl :: Var -> CoreExpr -> LiftM CoreExpr
 liftDecl f e = do
-    dbgMsg $ "Lifting " ++ idToStr f ++ ", args: " ++ unwords (map idToStr as)
+    dbgMsg $ "Lifting " ++ showOutputable f ++ ", args: " ++ showOutputable as
     dbgMsg $ "    rhs:" ++ showExpr e
     args_ <- asks args
+    dbgMsg $ "    environment args:" ++ showOutputable args_
     e_lifted <- local (setFun f . modArgs (++as)) (liftCase e_stripped)
     return (mkCoreLams (args_ ++ as) e_lifted)
   where
@@ -106,6 +107,7 @@ liftCase e = do
         Case scrutinee scrut_var ty alts
 
             | ueq && not (isVar scrutinee) -> do
+
                 dbgMsg $ "UEQ and not a var scrutinee: " ++ showOutputable e
                 liftInnerCase scrutinee scrut_var ty alts
 
@@ -115,18 +117,35 @@ liftCase e = do
 
                 lifted_scrutinee <- liftExpr scrutinee
 
-                lifted_alts <- mapM liftAlt alts
+                lifted_alts <- mapM (liftAlt scrut_var) alts
 
                 return $ Case lifted_scrutinee scrut_var ty lifted_alts
 
         _ -> liftExpr e
 
 -- | Lift an alternative
-liftAlt :: CoreAlt -> LiftM CoreAlt
-liftAlt (con,bound,e) = do
+--
+--   If we are doing UEQ, we should substitute the expression now!
+--   However, this leads to a spurious error:
+--
+--      PartSorted: PartSorted: panic! (the 'impossible' happened)
+--        (GHC version 7.4.2 for x86_64-unknown-linux):
+--      	splitFunTy
+--          forall ( a{tv 12} [tv] :: ghc-prim:GHC.Prim.*{(w) tc 34d} ).
+--          ( a{tv 12} [tv] :: ghc-prim:GHC.Prim.*{(w) tc 34d} )
+--          -> [( a{tv 12} [tv] :: ghc-prim:GHC.Prim.*{(w) tc 34d} )]
+--          -> [( a{tv 12} [tv] :: ghc-prim:GHC.Prim.*{(w) tc 34d} )]
+liftAlt :: Var -> CoreAlt -> LiftM CoreAlt
+liftAlt _scrut_var (con,bound,e) = do
+    _ueq <- asks (lift_to_ueq . settings)
     li <- asks (lift_inner . settings)
-    let liftInner = if li then liftExpr else liftCase
-    e_lifted <- local (modArgs (++ bound)) (liftInner e)
+    let {- e' = case con of
+                DataAlt dc | _ueq
+                    -> substExp _scrut_var (mkCoreConApps dc (map Var bound)) e
+                _   -> e -}
+        inner_lift = if li then liftExpr else liftCase
+    e_lifted <- local (modArgs (++ bound)) (inner_lift e)
+    dbgMsg $ "liftAlt: Lifted: " ++ showExpr e_lifted
     return (con,bound,e_lifted)
 
 -- | Lift an expression
@@ -186,7 +205,7 @@ liftInnerCase scrutinee scrut_var ty alts = do
 
     dbgMsg $ "liftInnerCase: lifted " ++ showExpr scrutinee ++ " to " ++ showExpr scrutinee'
 
-    new_var <- mkLiftedName ty "case_var"
+    new_var <- mkLiftedName (varType scrut_var) "_case_var"
 
     dbgMsg $ "liftInnerCase: new variable: " ++ showOutputable new_var
 
@@ -196,12 +215,12 @@ liftInnerCase scrutinee scrut_var ty alts = do
 
     arg_vars <- asks args
 
-    let fv_set    = exprFreeVars (Case scrutinee scrut_var ty alts)
+    let fv_set    = exprFreeVars e
         case_args = filter (`elemVarSet` fv_set) arg_vars
 
     dbgMsg $ "liftInnerCase: case args: " ++ showOutputable case_args
 
-    new_fun <- mkLiftedName (mkPiTypes (new_var:case_args) ty) "case"
+    new_fun <- mkLiftedName (mkPiTypes (new_var:case_args) ty) "_case"
 
     dbgMsg $ "liftInnerCase: new fun: " ++ showOutputable new_fun
 
@@ -220,37 +239,58 @@ liftInnerCase scrutinee scrut_var ty alts = do
 -- | Lift a let expression
 liftInnerLet :: CoreBind -> CoreExpr -> LiftM CoreExpr
 liftInnerLet b in_e = do
-    dbgMsg $ "Experimental let: " ++ showExpr (Let b in_e)
+    dbgMsg $ "liftInnerLet: " ++ showExpr (Let b in_e)
     case b of
         NonRec v e -> do
-            (lifted_bind,subst_pair) <- liftInnerDecl v e
-
-            tell [uncurry NonRec lifted_bind]
-
-            liftExpr (substExprList [subst_pair] in_e)
+            let e' = substExp v in_e e
+            dbgMsg $ "liftInnerLet: NonRec, substituting to " ++ showExpr e'
+            liftExpr e'
 
         Rec binds -> do
-            (lifted_binds,subst_list) <- mapAndUnzipM (uncurry liftInnerDecl) binds
 
-            tell [Rec lifted_binds]
+            -- Idea: lift these binds to the top level, prepending the common
+            -- free variables
 
-            liftExpr (substExprList subst_list in_e)
+            arg_vars <- asks args
 
--- | Returns the substitution
-liftInnerDecl :: Var -> CoreExpr -> LiftM ((Var,CoreExpr),(Var,CoreExpr))
-liftInnerDecl v e = do
+            let all_fvs = bindFreeVars b
+                new_args = filter (`elemVarSet` all_fvs) arg_vars
 
-    arg_vars <- asks args
+            dbgMsg $
+                "liftInnerLet: free vars: " ++ showOutputable all_fvs ++
+                " new args: " ++ showOutputable new_args
 
-    let fv_set   = bindFreeVars (NonRec v e)
-        let_args = filter (`elemVarSet` fv_set) arg_vars
 
-    new_v <- mkLiftedName (mkPiTypes arg_vars (varType v))
-                          (idToStr v ++ "let")
 
-    let subst_v = mkVarApps (Var new_v) let_args
+            -- Now all functions need to have used_fvs prepended to them
 
-    lifted_e <- local (modArgs (const let_args))
-                      (liftDecl new_v (substExp v subst_v e))
+            -- First, create new variable names
 
-    return ((new_v,lifted_e),(v,subst_v))
+            let (vs,es) = unzip binds
+
+            vs' <- forM vs $ \ v -> mkLiftedName
+                                        (mkPiTypes new_args (varType v))
+                                        (idToStr v ++ "_letrec")
+
+            let sub = substExprList
+                        [ (v,mkVarApps (Var v') new_args)
+                        | (v,v') <- zip vs vs' ]
+
+                es' = map sub es -- lambdas will get their new arguments from liftCoreBind
+
+                prepared_binds = Rec (zip vs' es')
+
+            dbgMsg $ "liftInnerLet: Rec, prepared to " ++ showOutputable prepared_binds
+
+            binds' <- local (modArgs (const new_args)) $ liftCoreBind (Rec (zip vs' es'))
+
+            dbgMsg $ "liftInnerLet: Rec, lifted to " ++ showOutputable binds'
+
+            tell [binds']
+
+            let in_e' = sub in_e
+
+            dbgMsg $ "liftInnerLet: Rec, continuing with " ++ showOutputable in_e'
+
+            liftExpr in_e'
+
