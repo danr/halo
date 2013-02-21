@@ -51,25 +51,30 @@ import Control.Monad.Writer
 
 -- | Fetches the missing definitions from other modules
 fetch :: (Var -> Bool) -> [CoreBind] -> ([CoreBind],String)
-fetch ok init_bs = (arrangeCoreBinds new_vars new_binders,unlines debug)
+fetch ok init_prog = (arrangeCoreBinds binders,unlines (debug ++ not_ok_debug))
   where
-    (init_vars,exprs) = first mkVarSet (unzip (flattenBinds init_bs))
+    init_binds :: [(Var,CoreExpr)]
+    init_binds = flattenBinds init_prog
+
+    (init_vars,exprs) = first mkVarSet (unzip init_binds)
 
     new_binders :: [(Var,CoreExpr)]
-    ((all_vars,new_binders),debug) = runWriter (go ok init_vars exprs)
+    (new_binders,debug) = runWriter (go init_vars exprs)
 
-    new_vars = all_vars `minusVarSet` init_vars
+    (binders,not_ok) = partition (ok . fst) (init_binds ++ new_binders)
+
+    not_ok_debug = [ "Deemed as junk: " ++ showOutputable b | b <- not_ok ]
 
 write :: a -> Writer [a] ()
 write = tell . return
 
-go :: (Var -> Bool) -> VarSet -> [CoreExpr] -> Writer [String] (VarSet,[(Var,CoreExpr)])
-go ok vs es
-    | isEmptyVarSet new_vars = write "No more unvisited expressions" >> return (vs,[])
+go :: VarSet -> [CoreExpr] -> Writer [String] [(Var,CoreExpr)]
+go vs es
+    | isEmptyVarSet new_vars = write "No more unvisited expressions" >> return ([])
     | otherwise = do
         write $ "Interesting variables this round: " ++ showOutputable new_vars
-        new_exprs <- catMaybes <$> mapM maybe_unfold (filter ok $ varSetElems new_vars)
-        second (new_exprs ++) <$> go ok (vs `unionVarSet` new_vars) (map snd new_exprs)
+        new_exprs <- catMaybes <$> mapM maybe_unfold (varSetElems new_vars)
+        (new_exprs ++) <$> go (vs `unionVarSet` new_vars) (map snd new_exprs)
   where
     new_vars = exprsSomeFreeVars interesting es
 
@@ -81,9 +86,11 @@ go ok vs es
         write $ "Unfolding of " ++ showOutputable x ++ ": " ++ showOutputable res
         return res
 
-arrangeCoreBinds :: VarSet -> [(Var,CoreExpr)] -> [CoreBind]
-arrangeCoreBinds vs = map coalesce . stronglyConnComp . map (uncurry mkNode)
+arrangeCoreBinds :: [(Var,CoreExpr)] -> [CoreBind]
+arrangeCoreBinds binds = map coalesce . stronglyConnComp . map (uncurry mkNode) $ binds
   where
+    vs = mkVarSet (map fst binds)
+
     mkNode :: Var -> CoreExpr -> (CoreBind,Var,[Var])
     mkNode v e
         | v `elemVarSet` fvs = node (Rec [(v,e)])
