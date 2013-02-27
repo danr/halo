@@ -63,9 +63,9 @@ linClauses cls = vcat $ concat
     app_decl
         = [ linDeclFun linApp [linDomain,linDomain] linDomain | any appUsed cls ]
 
-    pred n p g  = [ linDeclFun p (replicate n linDomain) linBool | any g cls ]
-    unary_pred  = pred 1
-    binary_pred = pred 2
+    predicate n p g  = [ linDeclFun p (replicate n linDomain) linBool | any g cls ]
+    unary_pred  = predicate 1
+    binary_pred = predicate 2
 
     min_decl       = unary_pred linMin    minUsed
     minrec_decl    = unary_pred linMinRec minRecUsed

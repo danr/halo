@@ -39,7 +39,15 @@ renameClauses clauses =
                         | i <- [(0 :: Int)..]
                         ]
 
-     in  (clauses',str_map)
+        k = ("q_" ++)
+
+        u ":" = "CONS"
+        u "[]" = "NIL"
+        u s = s
+
+    in  (map (clauseMapTerms (replaceQVarsTm k) k .
+              clauseMapFormula (formulaMapTerms (replaceVarsTm u) id))
+              clauses',str_map)
 
 mkFunRenamer :: [Clause'] -> (Clause' -> Clause Var String,Map String Var)
 mkFunRenamer clauses =
