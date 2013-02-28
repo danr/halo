@@ -2,12 +2,9 @@
 -- representation into Waldmeister format
 module Halo.FOL.LineariseWaldmeister (linWaldmeister) where
 
-import Outputable hiding (quote)
-
 import Data.List
 import Data.Ord
 
-import Halo.Shared
 import Halo.Util
 import Halo.FOL.Internals.Internals
 import Halo.FOL.Operations
@@ -18,28 +15,30 @@ import qualified Data.Set as S
 import Data.Set (Set)
 import Data.Maybe
 
+import Halo.FOL.DLDoc
+import qualified Data.DList as DL
+
 -- | Linearise a set of clauses to a String
 linWaldmeister :: [StrClause] -> String
-linWaldmeister = (++ "\n") . portableShowSDoc . linClauses
+linWaldmeister = (++ "\n") . DL.toList . linClauses
 
 -- | Linearise the set of clauses, producing unsat cores if the Bool is true
-linClauses :: [StrClause] -> SDoc
+linClauses :: [StrClause] -> DLDoc
 linClauses cls = vcat
     [ text "NAME" <+> text "hipspec"
     , text "MODE" <+> text "PROOF"
     , text "SORTS" <+> linDomain
 
-    , hang (text "SIGNATURE") 4 (vcat sigs)
+    , hang (text "SIGNATURE") 4 sigs
 
-    , hang (text "ORDERING") 4 (vcat
-            [text "LPO",cat (punctuate (text ">") order)]
-        )
+    , hang (text "ORDERING") 4
+        [text "LPO",cat (punctuate (text " > ") order)]
 
     , hang (text "VARIABLES") 4
-        (cat (punctuate comma vars) <+> colon <+> linDomain)
+        [csv vars <+> colon <+> linDomain]
 
-    , hang (text "EQUATIONS") 4 (vcat eqs)
-    , hang (text "CONCLUSION") 4 concl
+    , hang (text "EQUATIONS") 4 eqs
+    , hang (text "CONCLUSION") 4 [concl]
     ]
   where
     (pos_eqs,neg_eq:_)
@@ -47,7 +46,7 @@ linClauses cls = vcat
         $ partition snd
         $ mapMaybe clauseToEq cls
 
-    order :: [SDoc]
+    order :: [DLDoc]
     order = map text
           $ (any appUsed cls ? ("app":))
           $ map fst
@@ -64,7 +63,7 @@ linClauses cls = vcat
         get (Ptr v)      = S.singleton (v,0)
         get _            = S.empty
 
-    sigs :: [SDoc]
+    sigs :: [DLDoc]
     sigs = [ text s
                 <+> colon
                 <+> cat (punctuate space (replicate a linDomain))
@@ -73,11 +72,11 @@ linClauses cls = vcat
            | (s,a) <- symbols
            ]
 
-    vars :: [SDoc]
+    vars :: [DLDoc]
     vars = map text $ nub $ concatMap allQuant' cls
 
-    concl :: SDoc
-    eqs :: [SDoc]
+    concl :: DLDoc
+    eqs :: [DLDoc]
     concl:eqs = map (uncurry linEquality) (neg_eq:pos_eqs)
 
 clauseToEq :: StrClause -> Maybe ((StrTerm,StrTerm),Bool)
@@ -91,12 +90,12 @@ clauseToEq cl = case cl of
             Unequal t1 t2 -> Just ((t1,t2),False)
             _             -> Nothing
 
-linEquality :: StrTerm -> StrTerm -> SDoc
+linEquality :: StrTerm -> StrTerm -> DLDoc
 linEquality t1 t2 = linTerm t1 <+> equals <+> linTerm t2
 
 -- | Linearise a term
 --   The way to carry out most of the work is determined in the Style.
-linTerm :: StrTerm -> SDoc
+linTerm :: StrTerm -> DLDoc
 linTerm tm = case tm of
     Fun s []    -> text s
     Fun s tms   -> text s <+> linTerms tms
@@ -110,13 +109,13 @@ linTerm tm = case tm of
     Lit{}       -> error "Waldmeister lit"
     Proj{}      -> error "Waldmeister proj"
   where
-    linTerms = parens . cat . punctuate comma . map linTerm
+    linTerms = parens . csv . map linTerm
 
 -- | Our domain D
-linDomain :: SDoc
+linDomain :: DLDoc
 linDomain = char 'D'
 
 -- | The app/@ symbol
-linApp      :: SDoc
+linApp      :: DLDoc
 linApp      = text "app"
 
