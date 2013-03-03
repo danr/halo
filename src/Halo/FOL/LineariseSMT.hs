@@ -219,7 +219,7 @@ linSkolem   = text . ("a_" ++) . showVar
 linQuantVar :: Var -> SDoc
 linQuantVar = text . ("q_" ++) . showVar
 
--- | The app/@ symbol
+-- | The app symbol
 linApp      :: SDoc
 linApp      = text "app"
 
